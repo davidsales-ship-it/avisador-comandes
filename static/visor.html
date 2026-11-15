@@ -207,6 +207,9 @@ function conectar() {
   };
 }
 conectar();
+
+// Mantiene despierto el servidor en planes que se duermen sin visitas (Render gratuito)
+setInterval(() => { fetch('/api/salud', {cache: 'no-store'}).catch(() => {}); }, 5 * 60 * 1000);
 </script>
 </body>
 </html>

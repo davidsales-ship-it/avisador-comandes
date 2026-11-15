@@ -50,7 +50,13 @@ El archivo `render.yaml` deja el servicio configurado:
 2. Render pide `VISOR_PASSWORD` y `EMPLEADO_PASSWORD` (distintas). `SECRET_KEY` y `API_KEY` las genera solo; la `API_KEY` se consulta en **Environment** del servicio.
 3. Al terminar, abre la dirección `https://….onrender.com` que muestra Render.
 
-Usa el plan *Starter* con un disco de 1 GB para que los pedidos no se pierdan al reiniciar. En el plan gratuito no hay disco y el servicio se duerme tras 15 minutos sin visitas, así que no conviene para una pantalla fija.
+Está configurado en el **plan gratuito**, pensado para pruebas:
+
+- No hay disco: los pedidos del visor se pierden cada vez que el servicio se reinicia o se publica un cambio.
+- Render duerme el servicio tras 15 minutos sin visitas. Mientras la pantalla visor esté abierta, ella misma hace una visita cada 5 minutos para mantenerlo despierto. Si nadie lo tiene abierto, la primera visita después tarda alrededor de un minuto en cargar.
+- El plan gratuito da 750 horas al mes para todos tus servicios gratuitos juntos; un servicio despierto todo el mes gasta unas 730.
+
+Para usarlo de verdad, cambia en `render.yaml` a `plan: starter` y descomenta el disco y `DB_PATH`.
 
 Cada vez que se sube un cambio a `main`, Render vuelve a publicar.
 
