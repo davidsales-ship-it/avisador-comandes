@@ -199,7 +199,7 @@ function pintar(estado) {
   $('titulo').hidden = !ultimo;
   $('vacio').hidden = !!ultimo;
 
-  const otros = pedidos.slice(1, estado.max_visibles);
+  const otros = pedidos.filter((p) => !ultimo || p.numero !== ultimo.numero).slice(0, estado.max_visibles - 1);
   $('otrosTitulo').hidden = otros.length === 0;
   $('otros').replaceChildren(...otros.map((p) => {
     const li = document.createElement('li');

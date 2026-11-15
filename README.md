@@ -18,9 +18,21 @@ En el visor, toca la pantalla una vez al encenderlo: el navegador exige un toque
 - Avisar un número que ya está en el visor lo vuelve a avisar: pasa a ser el principal y suena otra vez.
 - *Entregada*: la comanda cambia de color (azul) durante 2 segundos en el visor y desaparece.
 - *Eliminar*: la comanda desaparece del visor al momento, sin cambio de color.
-- *Remarcar*: vuelve a avisar, la comanda vuelve a salir en grande y suena. Con varias seleccionadas, la última elegida queda en grande.
+- *Remarcar*: vuelve a avisar, la comanda vuelve a salir en grande y suena, pero en la lista se queda en su sitio (la lista va por orden de llegada) y se marca en amarillo. Con varias seleccionadas, la última elegida queda en grande.
+- En la pantalla de empleado, la comanda que lleva más de *alerta_minutos* sin entregar (desde el primer aviso) se marca en rojo.
 - *Desfer*: deshace la última acción (avisar, entregar, eliminar o vaciar) de cualquier empleado o de la API, de los últimos 10 minutos. Se puede pulsar varias veces para ir hacia atrás.
-- Cada pedido desaparece solo `EXPIRA_MINUTOS` después de su último aviso (15 por defecto; `0` lo desactiva).
+- Cada pedido desaparece solo pasados unos minutos desde su último aviso (15 por defecto; `0` lo desactiva).
+
+## Configuración (⚙)
+
+El botón ⚙ de la pantalla de empleado abre la configuración, compartida por todos los dispositivos:
+
+| Campo | Qué es | Por defecto |
+|---|---|---|
+| Minutos para rojo | Minutos sin entregar tras los que la comanda se marca en rojo (0 = nunca) | `ALERTA_MINUTOS`, 10 |
+| Minutos para quitarla | Minutos desde el último aviso tras los que se quita sola del visor (0 = nunca) | `EXPIRA_MINUTOS`, 15 |
+
+Se guarda en la base de datos. En el plan gratuito de Render no hay disco: tras cada reinicio vuelve a los valores de `ALERTA_MINUTOS` y `EXPIRA_MINUTOS` del servicio, así que si quieres que un valor se mantenga, cámbialo también allí (Environment).
 - Los números son solo cifras, de 1 a `MAX_DIGITOS` (4 por defecto). Los ceros a la izquierda se quitan: `042` es el pedido `42`.
 - El estado se guarda en SQLite, de modo que un reinicio no vacía el visor.
 
@@ -80,7 +92,8 @@ La documentación interactiva (OpenAPI) está en `/api/docs`.
 | `POST` | `/api/v1/pedidos/eliminar` | Elimina varios a la vez. Cuerpo: `{"numeros": ["12", "37"]}`. Responde `{"eliminados": [...]}`. |
 | `DELETE` | `/api/v1/pedidos` | Vacía el visor. |
 | `POST` | `/api/v1/deshacer` | Deshace la última acción. Responde `{"deshecho": "comanda 42 entregada"}`, o `404` si no hay nada. |
-| `GET` | `/api/v1/pedidos` | Estado actual: `ultimo`, `pedidos` (el último avisado primero; `entregado: true` mientras dura el color), `deshacer` (descripción de lo que se desharía) y `version`. |
+| `GET` / `PUT` | `/api/v1/config` | Lee o cambia la configuración: `{"alerta_minutos": 10, "expira_minutos": 15}` (solo los campos que cambian). |
+| `GET` | `/api/v1/pedidos` | Estado actual: `ultimo` (la que sale en grande), `config`, `pedidos` (por orden de llegada, la más reciente primero; `entregado: true` mientras dura el color), `deshacer` (descripción de lo que se desharía) y `version`. |
 | `GET` | `/api/v1/eventos` | [Server-Sent Events](https://developer.mozilla.org/es/docs/Web/API/Server-sent_events): manda el estado completo cada vez que cambia. |
 
 Ejemplos:

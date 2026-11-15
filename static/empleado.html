@@ -13,7 +13,7 @@
   }
   .barra h1 { margin: 0; font-size: 1.1rem; }
   .barra nav { display: flex; gap: 8px; align-items: center; }
-  .enlace { background: none; border: 1px solid var(--borde); color: var(--texto); border-radius: 8px; padding: 6px 10px; font-size: .9rem; text-decoration: none; }
+  .enlace { white-space: nowrap; background: none; border: 1px solid var(--borde); color: var(--texto); border-radius: 8px; padding: 6px 10px; font-size: .9rem; text-decoration: none; }
   .punto { width: 10px; height: 10px; border-radius: 50%; background: var(--peligro); display: inline-block; }
   .conectado .punto { background: var(--acento); }
   main {
@@ -95,19 +95,52 @@
   .quadret[aria-pressed="true"]::after {
     content: "✓"; position: absolute; top: 4px; right: 7px; font-size: .85rem; font-weight: 800;
   }
+  .quadret.remarcada { background: var(--groc-fons); border-color: var(--groc); }
+  .quadret.tard { background: var(--vermell-fons); border-color: var(--vermell); }
   .quadret.entregada { background: var(--entrega-fons); border-color: var(--entrega); opacity: .7; cursor: default; }
+  .llegenda { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 10px 0 0; font-size: .8rem; color: var(--suave); }
+  .llegenda span::before {
+    content: ""; display: inline-block; width: .8em; height: .8em; border-radius: 3px;
+    margin-right: 5px; vertical-align: -1px; border: 1px solid;
+  }
+  .llegenda .l-groc::before { background: var(--groc-fons); border-color: var(--groc); }
+  .llegenda .l-vermell::before { background: var(--vermell-fons); border-color: var(--vermell); }
+  dialog {
+    border: 1px solid var(--borde); border-radius: 14px; padding: 0; width: min(420px, calc(100% - 32px));
+    background: var(--superficie); color: var(--texto);
+  }
+  dialog::backdrop { background: rgb(0 0 0 / .45); }
+  dialog form { display: grid; gap: 10px; padding: 20px; }
+  dialog h2 { margin: 0 0 4px; font-size: 1.2rem; }
+  .camp { display: grid; gap: 4px; }
+  .camp small { color: var(--suave); font-size: .8rem; }
+  .camp input { width: 7em; }
+  .botons-dlg { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
+  .botons-dlg button { padding: 10px 16px; }
+  .secundari { border: 1px solid var(--borde); background: none; color: var(--texto); border-radius: 10px; }
   #lista .vacia { grid-column: 1 / -1; }
   .vacia { color: var(--suave); text-align: center; padding: 16px 0; }
-  :root { --entrega: #2f6fd1; --entrega-fons: #e3edfc; }
-  @media (prefers-color-scheme: dark) { :root { --entrega: #4c9dff; --entrega-fons: #16263d; } }
+  :root {
+    --entrega: #2f6fd1; --entrega-fons: #e3edfc;
+    --groc: #d9a400; --groc-fons: #fff4c7;
+    --vermell: #e0605a; --vermell-fons: #fde2e0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --entrega: #4c9dff; --entrega-fons: #16263d;
+      --groc: #d9a400; --groc-fons: #3a3214;
+      --vermell: #e0605a; --vermell-fons: #3d1d1b;
+    }
+  }
 </style>
 </head>
 <body>
 <div class="barra">
-  <h1>Avisar comandes</h1>
+  <h1>Comandes</h1>
   <nav>
     <span id="conexion" title="Connexió"><span class="punto"></span></span>
-    <a class="enlace" href="/visor">Veure visor</a>
+    <a class="enlace" href="/visor">Visor</a>
+    <button class="enlace" id="obrirConfig" type="button" aria-label="Configuració" title="Configuració">⚙</button>
     <button class="enlace" id="salir" type="button">Sortir</button>
   </nav>
 </div>
@@ -139,8 +172,27 @@
       <button type="button" id="eliminar" class="quitar" disabled>Eliminar</button>
     </div>
     <ul id="lista"></ul>
+    <p class="llegenda"><span class="l-groc">Remarcada</span><span class="l-vermell" id="llegendaVermell"></span></p>
   </section>
 </main>
+<dialog id="dlgConfig">
+  <form id="formConfig">
+    <h2>Configuració</h2>
+    <label class="camp">Minuts sense entregar per marcar-la en vermell
+      <input id="cfgAlerta" type="number" min="0" max="240" step="1" inputmode="numeric" required>
+      <small>Des que s'avisa per primer cop. 0 = mai.</small>
+    </label>
+    <label class="camp">Minuts per treure-la sola del visor
+      <input id="cfgExpira" type="number" min="0" max="1440" step="1" inputmode="numeric" required>
+      <small>Des de l'últim avís. 0 = mai.</small>
+    </label>
+    <p class="error" id="cfgError"></p>
+    <div class="botons-dlg">
+      <button type="button" class="secundari" id="tancarConfig">Cancel·lar</button>
+      <button type="submit" class="primario">Desar</button>
+    </div>
+  </form>
+</dialog>
 <script>
 const $ = (id) => document.getElementById(id);
 let numero = '';
@@ -164,6 +216,7 @@ $('retroceso').addEventListener('click', () => { numero = numero.slice(0, -1); p
 $('limpiar').addEventListener('click', () => { numero = ''; pintarNumero(); });
 $('avisar').addEventListener('click', () => avisar(numero));
 document.addEventListener('keydown', (e) => {
+  if ($('dlgConfig').open || e.target.closest('input')) return;
   if (/^[0-9]$/.test(e.key)) teclear(e.key);
   else if (e.key === 'Backspace') { numero = numero.slice(0, -1); pintarNumero(); }
   else if (e.key === 'Escape') { numero = ''; pintarNumero(); }
@@ -263,6 +316,9 @@ function pintarLista() {
   const actives = estado.pedidos.filter((p) => !p.entregado).map((p) => p.numero);
   seleccio = seleccio.filter((n) => actives.includes(n));
   const quantes = seleccio.length;
+  const alertaMin = estado.config.alerta_minutos;
+  $('llegendaVermell').hidden = !(alertaMin > 0);
+  $('llegendaVermell').textContent = `Més de ${alertaMin} min sense entregar`;
   $('titolLlista').textContent = quantes === 0 ? 'Al visor'
     : quantes === 1 ? '1 seleccionada' : `${quantes} seleccionades`;
   ['remarcar', 'entregar', 'eliminar'].forEach((id) => { $(id).disabled = quantes === 0; });
@@ -289,7 +345,11 @@ function pintarLista() {
       sub.textContent = 'entregada';
     } else {
       b.setAttribute('aria-pressed', seleccio.includes(p.numero) ? 'true' : 'false');
-      sub.textContent = hace(estado.ahora + desfase - p.avisado_en);
+      const espera = estado.ahora + desfase - p.listo_en;
+      const alerta = estado.config.alerta_minutos;
+      if (alerta > 0 && espera >= alerta * 60) b.classList.add('tard');
+      else if (p.avisos > 1) b.classList.add('remarcada');
+      sub.textContent = hace(espera);
       b.addEventListener('click', () => triar(p.numero));
     }
     b.append(num, sub);
@@ -297,7 +357,28 @@ function pintarLista() {
     return li;
   }));
 }
-setInterval(pintarLista, 30000);
+setInterval(pintarLista, 15000);
+
+// Configuració
+$('obrirConfig').addEventListener('click', () => {
+  if (!estado) return;
+  $('cfgAlerta').value = estado.config.alerta_minutos;
+  $('cfgExpira').value = estado.config.expira_minutos;
+  $('cfgError').textContent = '';
+  $('dlgConfig').showModal();
+});
+$('tancarConfig').addEventListener('click', () => $('dlgConfig').close());
+$('formConfig').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('PUT', '/api/v1/config', {
+      alerta_minutos: Number($('cfgAlerta').value),
+      expira_minutos: Number($('cfgExpira').value),
+    });
+    $('dlgConfig').close();
+    aviso('Configuració desada');
+  } catch (err) { $('cfgError').textContent = err.message; }
+});
 
 function conectar() {
   const fuente = new EventSource('/api/v1/eventos');

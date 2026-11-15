@@ -78,7 +78,7 @@ def test_numero_invalido(empleado):
         assert empleado.post("/api/v1/pedidos", json={"numero": malo}).status_code == 422, malo
 
 
-def test_volver_a_avisar_lo_pone_el_primero(empleado):
+def test_volver_a_avisar_lo_pone_en_grande(empleado):
     empleado.post("/api/v1/pedidos", json={"numero": 1})
     time.sleep(0.01)
     empleado.post("/api/v1/pedidos", json={"numero": 2})
@@ -86,7 +86,8 @@ def test_volver_a_avisar_lo_pone_el_primero(empleado):
     r = empleado.post("/api/v1/pedidos/1/avisar")
     assert r.json()["avisos"] == 2
     estado = empleado.get("/api/v1/pedidos").json()
-    assert [p["numero"] for p in estado["pedidos"]] == ["1", "2"]
+    assert estado["ultimo"]["numero"] == "1"
+    assert [p["numero"] for p in estado["pedidos"]] == ["2", "1"]
 
 
 def test_quitar_y_vaciar(empleado):
@@ -245,3 +246,42 @@ def test_varias_validacion(empleado, visor):
     assert empleado.post("/api/v1/pedidos/entregar", json={"numeros": []}).status_code == 422
     assert empleado.post("/api/v1/pedidos/eliminar", json={"numeros": ["abc"]}).status_code == 422
     assert visor.post("/api/v1/pedidos/eliminar", json={"numeros": ["1"]}).status_code == 403
+
+
+def test_remarcar_no_mueve_la_lista(empleado):
+    for n in (1, 2, 3):
+        empleado.post("/api/v1/pedidos", json={"numero": n})
+        time.sleep(0.01)
+    empleado.post("/api/v1/pedidos/1/avisar")
+    estado = empleado.get("/api/v1/pedidos").json()
+    assert [p["numero"] for p in estado["pedidos"]] == ["3", "2", "1"]
+    assert estado["ultimo"]["numero"] == "1"
+    assert estado["ultimo"]["avisos"] == 2
+
+
+def test_configuracion(modulo, empleado, visor):
+    assert visor.get("/api/v1/config").json() == {"alerta_minutos": 10, "expira_minutos": 15}
+    assert visor.put("/api/v1/config", json={"alerta_minutos": 5}).status_code == 403
+    assert empleado.put("/api/v1/config", json={"alerta_minutos": 999}).status_code == 422
+    assert empleado.put("/api/v1/config", json={}).status_code == 422
+    r = empleado.put("/api/v1/config", json={"alerta_minutos": 5})
+    assert r.json() == {"alerta_minutos": 5, "expira_minutos": 15}
+    assert empleado.get("/api/v1/pedidos").json()["config"]["alerta_minutos"] == 5
+    # se guarda
+    assert modulo.Avisador(modulo.DB_PATH).config["alerta_minutos"] == 5
+
+
+def test_configuracion_expira(modulo, empleado):
+    empleado.post("/api/v1/pedidos", json={"numero": 4})
+    modulo.avisador.db.execute("UPDATE pedidos SET avisado_en = avisado_en - 120")
+    empleado.put("/api/v1/config", json={"expira_minutos": 1})  # la quita al momento
+    assert empleado.get("/api/v1/pedidos").json()["pedidos"] == []
+
+
+def test_caducar_no_deja_la_base_bloqueada(modulo, empleado):
+    import sqlite3
+    empleado.post("/api/v1/pedidos", json={"numero": 1})
+    modulo.avisador.caducar()  # no borra nada
+    otra = sqlite3.connect(modulo.DB_PATH, timeout=0.2)
+    otra.execute("UPDATE pedidos SET avisos = avisos")
+    otra.commit()

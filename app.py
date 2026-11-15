@@ -36,7 +36,9 @@ EMPLEADO_PASSWORD = os.environ.get("EMPLEADO_PASSWORD", "")
 API_KEY = os.environ.get("API_KEY", "")
 SECRET_KEY = os.environ.get("SECRET_KEY", "")
 DB_PATH = os.environ.get("DB_PATH", str(BASE_DIR / "avisador.db"))
+# Valores iniciales de la configuración; luego se cambian desde la pantalla de empleado
 EXPIRA_MINUTOS = float(os.environ.get("EXPIRA_MINUTOS", "15"))
+ALERTA_MINUTOS = float(os.environ.get("ALERTA_MINUTOS", "10"))
 MAX_DIGITOS = int(os.environ.get("MAX_DIGITOS", "4"))
 MAX_VISIBLES = int(os.environ.get("MAX_VISIBLES", "13"))
 COOKIE_SEGURA = os.environ.get("COOKIE_SEGURA", "1") != "0"
@@ -56,6 +58,12 @@ NUMERO_RE = re.compile(r"^\d{1,%d}$" % MAX_DIGITOS)
 SEGUNDOS_ENTREGA = 2        # lo que dura el color de «entregada» antes de desaparecer
 MAX_DESHACER = 20           # acciones que se pueden deshacer
 DESHACER_MINUTOS = 10       # pasado este tiempo una acción ya no se deshace
+
+# Configuración editable: clave -> (valor inicial, mínimo, máximo)
+CONFIG_CAMPOS = {
+    "alerta_minutos": (ALERTA_MINUTOS, 0, 240),    # sin entregar tras estos minutos: rojo (0 = nunca)
+    "expira_minutos": (EXPIRA_MINUTOS, 0, 1440),   # se quita sola tras estos minutos (0 = nunca)
+}
 
 
 # ---------------------------------------------------------------- sesiones
@@ -134,7 +142,12 @@ class Avisador:
         if "entregado_en" not in columnas:
             self.db.execute("ALTER TABLE pedidos ADD COLUMN entregado_en REAL")
         self.db.execute("CREATE TABLE IF NOT EXISTS meta (clave TEXT PRIMARY KEY, valor INTEGER NOT NULL)")
+        self.db.execute("CREATE TABLE IF NOT EXISTS config (clave TEXT PRIMARY KEY, valor REAL NOT NULL)")
         self.db.commit()
+        self.config = {clave: inicial for clave, (inicial, _, _) in CONFIG_CAMPOS.items()}
+        for clave, valor in self.db.execute("SELECT clave, valor FROM config"):
+            if clave in self.config:
+                self.config[clave] = valor
         fila = self.db.execute("SELECT valor FROM meta WHERE clave='version'").fetchone()
         self.version = fila[0] if fila else 0
         # Cada entrada: (momento, descripción, [(numero, fila anterior o None), ...])
@@ -152,9 +165,11 @@ class Avisador:
 
     def estado(self) -> dict:
         with self.lock:
-            filas = self.db.execute(f"SELECT {COLUMNAS} FROM pedidos ORDER BY avisado_en DESC").fetchall()
+            # La lista va por orden de llegada; remarcar no la mueve
+            filas = self.db.execute(f"SELECT {COLUMNAS} FROM pedidos ORDER BY listo_en DESC").fetchall()
             version = self.version
             deshacer = self._deshacer_disponible()
+            config = dict(self.config)
         pedidos = [
             {"numero": n, "listo_en": l, "avisado_en": a, "avisos": c, "origen": o,
              "entregado": e is not None}
@@ -162,9 +177,11 @@ class Avisador:
         ]
         return {
             "version": version,
-            "ultimo": pedidos[0] if pedidos else None,
+            # La que sale en grande: la última avisada o remarcada
+            "ultimo": max(pedidos, key=lambda p: p["avisado_en"]) if pedidos else None,
             "pedidos": pedidos,
             "deshacer": deshacer,
+            "config": config,
             "max_visibles": MAX_VISIBLES,
             "max_digitos": MAX_DIGITOS,
             "ahora": time.time(),
@@ -286,7 +303,8 @@ class Avisador:
     def caducar(self) -> int:
         """Quita los entregados tras su color y los que llevan demasiado en pantalla."""
         ahora = time.time()
-        limite = ahora - EXPIRA_MINUTOS * 60 if EXPIRA_MINUTOS > 0 else 0
+        expira = self.config["expira_minutos"]
+        limite = ahora - expira * 60 if expira > 0 else 0
         with self.lock:
             borrados = self.db.execute(
                 "DELETE FROM pedidos WHERE avisado_en < ? OR entregado_en <= ?",
@@ -294,9 +312,24 @@ class Avisador:
             ).rowcount
             if borrados:
                 self._cambio()
+            else:
+                self.db.commit()  # cierra la transacción aunque no se borre nada
         if borrados:
             self.publicar()
         return borrados
+
+    def configurar(self, cambios: dict) -> dict:
+        with self.lock:
+            self.config.update(cambios)
+            self.db.executemany(
+                "INSERT INTO config(clave, valor) VALUES(?, ?) ON CONFLICT(clave) DO UPDATE SET valor=excluded.valor",
+                list(cambios.items()),
+            )
+            self._cambio()
+            config = dict(self.config)
+        self.publicar()
+        self.caducar()
+        return config
 
     # -- tiempo real
 
@@ -377,6 +410,35 @@ def sesion(request: Request):
 
 
 # ---------------------------------------------------------------- API v1
+
+class Configuracion(BaseModel):
+    alerta_minutos: float | None = None
+    expira_minutos: float | None = None
+
+
+@app.get("/api/v1/config", tags=["configuración"])
+def ver_config(rol=Depends(puede_leer)):
+    """Configuración actual."""
+    return avisador.estado()["config"]
+
+
+@app.put("/api/v1/config", tags=["configuración"])
+def cambiar_config(datos: Configuracion, rol=Depends(puede_avisar)):
+    """Cambia la configuración. Solo hace falta enviar los campos que cambian.
+
+    - alerta_minutos: minutos sin entregar tras los que la comanda se marca en rojo (0 = nunca).
+    - expira_minutos: minutos tras el último aviso en que la comanda se quita sola (0 = nunca).
+    """
+    cambios = {}
+    for clave, valor in datos.model_dump(exclude_none=True).items():
+        _, minimo, maximo = CONFIG_CAMPOS[clave]
+        if not minimo <= valor <= maximo:
+            raise HTTPException(422, f"{clave} ha d'estar entre {minimo} i {maximo}")
+        cambios[clave] = valor
+    if not cambios:
+        raise HTTPException(422, "No hi ha res per canviar")
+    return avisador.configurar(cambios)
+
 
 class NuevoPedido(BaseModel):
     numero: str | int

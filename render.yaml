@@ -18,8 +18,11 @@ services:
         generateValue: true  # Render genera una clave aleatoria
       - key: API_KEY
         generateValue: true
+      # Valors inicials; després es canvien des de ⚙ a la pantalla d'empleat
       - key: EXPIRA_MINUTOS
         value: "15"
+      - key: ALERTA_MINUTOS
+        value: "10"
       - key: MAX_DIGITOS
         value: "4"
       # - key: DB_PATH
