@@ -23,7 +23,7 @@ En el visor, toca la pantalla una vez al encenderlo: el navegador exige un toque
 ## Puesta en marcha
 
 ```bash
-cd avisador-comandas
+cd avisador-comandes
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # rellena las contraseñas, SECRET_KEY y, si hace falta, API_KEY
