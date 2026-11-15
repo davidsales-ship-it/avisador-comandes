@@ -35,14 +35,37 @@
   }
   .teclado button:active { transform: scale(.97); }
   .teclado .borrar { font-size: 1.2rem; }
-  #avisar { width: 100%; margin-top: 10px; font-size: 1.4rem; padding: 18px; }
+  .fila-avisar { display: flex; gap: 8px; margin-top: 10px; }
+  #avisar { flex: 1; font-size: 1.4rem; padding: 18px; }
   #avisar:disabled { opacity: .45; cursor: default; }
   .mensaje { min-height: 1.4em; margin: 10px 0 0; text-align: center; color: var(--suave); }
   .mensaje.error { color: var(--peligro); }
   #desfer {
-    width: 100%; margin-top: 8px; padding: 12px; border-radius: 10px;
+    flex: 0 0 38%; padding: 6px 8px; border-radius: 10px; min-width: 0;
     border: 1px dashed var(--borde); background: none; color: var(--texto);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    display: flex; flex-direction: column; justify-content: center; line-height: 1.2;
+  }
+  #desfer b { font-size: 1rem; }
+  #desfer small {
+    font-size: .75rem; color: var(--suave);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+  }
+  /* Mòbil: el teclat s'adapta a l'alçada perquè es vegi també l'inici de la llista */
+  @media (max-width: 759px) {
+    .barra { padding: 8px 12px; }
+    main { padding: 10px; gap: 10px; }
+    .panel { padding: 10px; }
+    #pantalla { font-size: clamp(2rem, 7dvh, 3rem); line-height: 1.25; margin-bottom: 8px; }
+    .teclado { gap: 6px; }
+    .teclado button { padding: clamp(5px, 1.3dvh, 14px) 0; font-size: clamp(1.25rem, 3.6dvh, 1.7rem); }
+    .teclado .borrar { font-size: 1rem; }
+    .fila-avisar { margin-top: 8px; }
+    #avisar { padding: clamp(10px, 1.8dvh, 16px); font-size: 1.25rem; }
+    .mensaje { margin-top: 6px; font-size: .9rem; min-height: 1.2em; }
+    .mensaje:empty { margin: 0; min-height: 0; }
+    .cabecera-lista { margin-bottom: 6px; }
+    #lista li { padding: 8px; gap: 6px; }
+    .accion { padding: 8px 6px; }
   }
   .cabecera-lista { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; }
   .cabecera-lista h2 { margin: 0; font-size: 1.05rem; }
@@ -83,8 +106,10 @@
       <button type="button" data-d="0">0</button>
       <button type="button" class="borrar" id="retroceso" aria-label="Esborrar l'última xifra">⌫</button>
     </div>
-    <button type="button" class="primario" id="avisar" disabled>Avisar</button>
-    <button type="button" id="desfer" hidden></button>
+    <div class="fila-avisar">
+      <button type="button" class="primario" id="avisar" disabled>Avisar</button>
+      <button type="button" id="desfer" hidden><b>↶ Desfer</b><small id="desferText"></small></button>
+    </div>
     <p class="mensaje" id="mensaje"></p>
   </section>
   <section class="panel">
@@ -187,7 +212,8 @@ function pintarLista() {
   if (!estado) return;
   const desfase = Date.now() / 1000 - estado.recibido;
   $('desfer').hidden = !estado.deshacer;
-  $('desfer').textContent = estado.deshacer ? `↶ Desfer: ${estado.deshacer}` : '';
+  $('desferText').textContent = estado.deshacer || '';
+  $('desfer').title = estado.deshacer ? `Desfer: ${estado.deshacer}` : '';
   const actives = estado.pedidos.filter((p) => !p.entregado);
   $('vaciar').hidden = actives.length === 0;
   if (estado.pedidos.length === 0) {
