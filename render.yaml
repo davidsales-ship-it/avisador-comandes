@@ -1,0 +1,30 @@
+# Configuración para Render (Blueprint). Ver README, sección «Publicar en Render».
+services:
+  - type: web
+    name: avisador-comandes
+    runtime: python
+    plan: starter            # el disco necesita un plan de pago
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    # Un solo proceso: los avisos en tiempo real se reparten desde memoria
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
+    healthCheckPath: /api/salud
+    envVars:
+      - key: VISOR_PASSWORD
+        sync: false          # Render la pide al crear el servicio
+      - key: EMPLEADO_PASSWORD
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true  # Render genera una clave aleatoria
+      - key: API_KEY
+        generateValue: true
+      - key: DB_PATH
+        value: /var/data/avisador.db
+      - key: EXPIRA_MINUTOS
+        value: "15"
+      - key: MAX_DIGITOS
+        value: "4"
+    disk:
+      name: datos
+      mountPath: /var/data
+      sizeGB: 1

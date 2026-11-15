@@ -42,6 +42,18 @@ docker run -d -p 8000:8000 --env-file .env -v avisador-datos:/data avisador-coma
 
 Ejecútalo siempre con **un solo proceso** (sin `--workers`): los avisos en tiempo real se reparten desde la memoria del proceso.
 
+## Publicar en Render
+
+El archivo `render.yaml` deja el servicio configurado:
+
+1. En Render: **New → Blueprint**, elige este repositorio y pulsa **Apply**.
+2. Render pide `VISOR_PASSWORD` y `EMPLEADO_PASSWORD` (distintas). `SECRET_KEY` y `API_KEY` las genera solo; la `API_KEY` se consulta en **Environment** del servicio.
+3. Al terminar, abre la dirección `https://….onrender.com` que muestra Render.
+
+Usa el plan *Starter* con un disco de 1 GB para que los pedidos no se pierdan al reiniciar. En el plan gratuito no hay disco y el servicio se duerme tras 15 minutos sin visitas, así que no conviene para una pantalla fija.
+
+Cada vez que se sube un cambio a `main`, Render vuelve a publicar.
+
 ## API para otro software
 
 Todo lo que hace la pantalla de empleado está disponible en `/api/v1`. Otro programa (TPV, cocina, web de pedidos…) se identifica con la clave `API_KEY` en la cabecera `X-API-Key` o `Authorization: Bearer <clave>`. Si `API_KEY` está vacía, el acceso externo queda desactivado.
