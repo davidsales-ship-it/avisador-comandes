@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="es">
+<html lang="ca">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Visor de pedidos</title>
+<title>Visor de comandes</title>
 <style>
   :root {
     --fondo: #0d1412;
@@ -12,6 +12,7 @@
     --suave: #8fa39c;
     --acento: #35d39f;
     --aviso: #ffd25e;
+    --entrega: #4c9dff;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; }
@@ -66,7 +67,24 @@
     font-weight: 700; font-variant-numeric: tabular-nums;
     font-size: min(4.6vw, 9vh); padding: 1vh 0;
   }
+  body.operari { cursor: auto; }
+  .esquerra { display: flex; align-items: center; gap: 1.5vw; }
+  #tornar {
+    color: var(--texto); text-decoration: none; border: 1px solid #2c3b37;
+    border-radius: 999px; padding: .3em .9em; font-weight: 600;
+  }
   .destello { animation: destello 1s ease-in-out 4; }
+  #ultimo.entregada { animation: entrega 2s ease-in forwards; }
+  .titulo.entregada { color: var(--entrega); }
+  #otros li.entregada { animation: entrega-fons 2s ease-in forwards; }
+  @keyframes entrega {
+    0%, 70% { color: var(--entrega); }
+    100% { color: var(--entrega); opacity: .15; }
+  }
+  @keyframes entrega-fons {
+    0%, 70% { background: var(--entrega); color: #062016; }
+    100% { background: var(--entrega); color: #062016; opacity: .15; }
+  }
   @keyframes destello {
     0%, 100% { color: var(--texto); }
     50% { color: var(--aviso); transform: scale(1.04); }
@@ -89,21 +107,24 @@
 </head>
 <body>
 <header>
-  <div class="estado" id="conexion"><span class="punto"></span><span id="conexionTexto">Conectando…</span></div>
+  <div class="esquerra">
+    <a id="tornar" href="/empleado" hidden>← Tornar</a>
+    <div class="estado" id="conexion"><span class="punto"></span><span id="conexionTexto">Connectant…</span></div>
+  </div>
   <div id="reloj"></div>
 </header>
 <main>
   <section class="principal" aria-live="assertive">
-    <div class="titulo" id="titulo">Pedido listo</div>
+    <div class="titulo" id="titulo">Comanda preparada</div>
     <div id="ultimo"></div>
-    <div class="vacio" id="vacio" hidden>Te avisaremos aquí cuando tu pedido esté listo</div>
+    <div class="vacio" id="vacio" hidden>T'avisarem aquí quan la teva comanda estigui preparada</div>
   </section>
   <section class="lateral">
-    <h2 id="otrosTitulo">También listos</h2>
+    <h2 id="otrosTitulo">També preparades</h2>
     <ul id="otros"></ul>
   </section>
 </main>
-<button id="activar" type="button">Toca la pantalla para activar sonido y pantalla completa</button>
+<button id="activar" type="button">Toca la pantalla per activar el so i la pantalla completa</button>
 <script>
 const $ = (id) => document.getElementById(id);
 let audio = null;
@@ -112,7 +133,7 @@ let ultimoAviso = 0;
 let wakeLock = null;
 
 function reloj() {
-  $('reloj').textContent = new Date().toLocaleTimeString('es-ES', {hour: '2-digit', minute: '2-digit'});
+  $('reloj').textContent = new Date().toLocaleTimeString('ca-ES', {hour: '2-digit', minute: '2-digit'});
 }
 reloj(); setInterval(reloj, 10000);
 
@@ -168,7 +189,12 @@ function pintar(estado) {
 
   $('ultimo').textContent = ultimo ? ultimo.numero : '';
   const cifras = ultimo ? Math.min(ultimo.numero.length, 5) : 0;
-  $('ultimo').className = cifras >= 3 ? 'c' + cifras : '';
+  const entregada = !!ultimo && ultimo.entregado;
+  ['c3', 'c4', 'c5'].forEach((c) => $('ultimo').classList.toggle(c, 'c' + cifras === c));
+  $('ultimo').classList.toggle('entregada', entregada);
+  if (entregada) $('ultimo').classList.remove('destello');
+  $('titulo').textContent = entregada ? 'Comanda entregada' : 'Comanda preparada';
+  $('titulo').classList.toggle('entregada', entregada);
   $('ultimo').hidden = !ultimo;
   $('titulo').hidden = !ultimo;
   $('vacio').hidden = !!ultimo;
@@ -178,6 +204,7 @@ function pintar(estado) {
   $('otros').replaceChildren(...otros.map((p) => {
     const li = document.createElement('li');
     li.textContent = p.numero;
+    if (p.entregado) li.className = 'entregada';
     return li;
   }));
 
@@ -191,7 +218,7 @@ function pintar(estado) {
 
 function conectado(si) {
   $('conexion').classList.toggle('conectado', si);
-  $('conexionTexto').textContent = si ? 'En línea' : 'Sin conexión, reintentando…';
+  $('conexionTexto').textContent = si ? 'En línia' : 'Sense connexió, reintentant…';
 }
 
 function conectar() {
@@ -207,6 +234,11 @@ function conectar() {
   };
 }
 conectar();
+
+// Si l'obre un empleat, pot tornar a la seva pantalla
+fetch('/api/sesion').then((r) => r.json()).then(({rol}) => {
+  if (rol === 'empleado') { $('tornar').hidden = false; document.body.classList.add('operari'); }
+}).catch(() => {});
 
 // Mantiene despierto el servidor en planes que se duermen sin visitas (Render gratuito)
 setInterval(() => { fetch('/api/salud', {cache: 'no-store'}).catch(() => {}); }, 5 * 60 * 1000);

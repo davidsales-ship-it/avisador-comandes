@@ -155,3 +155,65 @@ def test_eventos_publica_cambios(modulo, empleado):
 
     datos = asyncio.run(prueba())
     assert datos["ultimo"]["numero"] == "15"
+
+
+def test_entregar_cambia_y_desaparece(modulo, empleado):
+    empleado.post("/api/v1/pedidos", json={"numero": 21})
+    assert empleado.post("/api/v1/pedidos/21/entregar").status_code == 200
+    pedido = empleado.get("/api/v1/pedidos").json()["pedidos"][0]
+    assert pedido["entregado"] is True
+    assert modulo.avisador.caducar() == 0  # aún dentro de los 2 segundos
+    modulo.avisador.db.execute("UPDATE pedidos SET entregado_en = entregado_en - 5")
+    assert modulo.avisador.caducar() == 1
+    assert empleado.post("/api/v1/pedidos/21/entregar").status_code == 404
+
+
+def test_entregar_desaparece_solo(empleado):
+    empleado.post("/api/v1/pedidos", json={"numero": 22})
+    empleado.post("/api/v1/pedidos/22/entregar")
+    time.sleep(2.4)
+    assert empleado.get("/api/v1/pedidos").json()["pedidos"] == []
+
+
+def test_volver_a_avisar_un_entregado(empleado):
+    empleado.post("/api/v1/pedidos", json={"numero": 23})
+    empleado.post("/api/v1/pedidos/23/entregar")
+    assert empleado.post("/api/v1/pedidos/23/avisar").json()["entregado"] is False
+
+
+def test_deshacer(modulo, empleado):
+    assert empleado.post("/api/v1/deshacer").status_code == 404
+    empleado.post("/api/v1/pedidos", json={"numero": 1})
+    empleado.post("/api/v1/pedidos", json={"numero": 2})
+    numeros = lambda: [p["numero"] for p in empleado.get("/api/v1/pedidos").json()["pedidos"]]
+
+    empleado.delete("/api/v1/pedidos/1")
+    assert empleado.get("/api/v1/pedidos").json()["deshacer"] == "comanda 1 eliminada"
+    assert empleado.post("/api/v1/deshacer").json() == {"deshecho": "comanda 1 eliminada"}
+    assert sorted(numeros()) == ["1", "2"]
+
+    empleado.post("/api/v1/pedidos/2/entregar")
+    modulo.avisador.db.execute("UPDATE pedidos SET entregado_en = entregado_en - 5")
+    modulo.avisador.caducar()
+    assert numeros() == ["1"]
+    empleado.post("/api/v1/deshacer")
+    estado = empleado.get("/api/v1/pedidos").json()
+    assert sorted(numeros()) == ["1", "2"]
+    assert not any(p["entregado"] for p in estado["pedidos"])
+
+    empleado.delete("/api/v1/pedidos")
+    empleado.post("/api/v1/deshacer")
+    assert sorted(numeros()) == ["1", "2"]
+
+    empleado.post("/api/v1/pedidos", json={"numero": 3})  # nueva: deshacer la quita
+    empleado.post("/api/v1/deshacer")
+    assert sorted(numeros()) == ["1", "2"]
+
+    empleado.post("/api/v1/deshacer")  # deshace el aviso de la 2
+    empleado.post("/api/v1/deshacer")  # deshace el aviso de la 1
+    assert numeros() == []
+    assert empleado.post("/api/v1/deshacer").status_code == 404
+
+
+def test_visor_no_puede_deshacer(visor):
+    assert visor.post("/api/v1/deshacer").status_code == 403

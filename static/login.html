@@ -1,16 +1,16 @@
 <!doctype html>
-<html lang="es">
+<html lang="ca">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Avisador de comandas</title>
+<title>Avisador de comandes</title>
 <link rel="stylesheet" href="/static/estilo.css">
 </head>
 <body class="centrado">
 <form id="form" class="tarjeta">
-  <h1>Avisador de comandas</h1>
-  <p class="nota">Con la contraseña de <b>empleado</b> marcas pedidos; con la de <b>visor</b> este dispositivo queda como pantalla.</p>
-  <label for="pw">Contraseña</label>
+  <h1>Avisador de comandes</h1>
+  <p class="nota">Amb la contrasenya d'<b>empleat</b> marques comandes; amb la de <b>visor</b> aquest dispositiu queda com a pantalla.</p>
+  <label for="pw">Contrasenya</label>
   <input id="pw" type="password" autocomplete="current-password" required autofocus>
   <button type="submit" class="primario">Entrar</button>
   <p id="error" class="error" role="alert"></p>
@@ -24,7 +24,7 @@ document.getElementById('form').addEventListener('submit', async (e) => {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({password: document.getElementById('pw').value})
   });
-  if (!r.ok) { error.textContent = 'Contraseña incorrecta'; return; }
+  if (!r.ok) { error.textContent = 'Contrasenya incorrecta'; return; }
   const {rol} = await r.json();
   location.href = rol === 'visor' ? '/visor' : '/empleado';
 });

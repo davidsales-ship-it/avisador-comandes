@@ -6,6 +6,8 @@ mismas órdenes por la API /api/v1 con una clave.
 
 Ejecutar con un solo proceso (uvicorn app:app), porque los avisos en tiempo
 real se reparten desde la memoria de ese proceso.
+
+Los textos que ve el usuario están en catalán.
 """
 
 import asyncio
@@ -51,6 +53,9 @@ if not 1 <= MAX_DIGITOS <= 9:
 COOKIE = "avisador_sesion"
 DURACION_SESION = {"visor": 365 * 86400, "empleado": 30 * 86400}
 NUMERO_RE = re.compile(r"^\d{1,%d}$" % MAX_DIGITOS)
+SEGUNDOS_ENTREGA = 2        # lo que dura el color de «entregada» antes de desaparecer
+MAX_DESHACER = 20           # acciones que se pueden deshacer
+DESHACER_MINUTOS = 10       # pasado este tiempo una acción ya no se deshace
 
 
 # ---------------------------------------------------------------- sesiones
@@ -94,20 +99,23 @@ def rol_actual(request: Request):
 def puede_leer(request: Request):
     rol = rol_actual(request)
     if rol is None:
-        raise HTTPException(401, "No autorizado")
+        raise HTTPException(401, "No autoritzat")
     return rol
 
 
 def puede_avisar(request: Request):
     rol = rol_actual(request)
     if rol is None:
-        raise HTTPException(401, "No autorizado")
+        raise HTTPException(401, "No autoritzat")
     if rol not in ("empleado", "api"):
-        raise HTTPException(403, "La pantalla visor solo puede mostrar pedidos")
+        raise HTTPException(403, "La pantalla visor només pot mostrar comandes")
     return rol
 
 
 # ---------------------------------------------------------------- estado
+
+COLUMNAS = "numero, listo_en, avisado_en, avisos, origen, entregado_en"
+
 
 class Avisador:
     """Pedidos listos, guardados en SQLite para no perderlos al reiniciar."""
@@ -120,36 +128,52 @@ class Avisador:
             listo_en REAL NOT NULL,
             avisado_en REAL NOT NULL,
             avisos INTEGER NOT NULL DEFAULT 1,
-            origen TEXT NOT NULL)""")
+            origen TEXT NOT NULL,
+            entregado_en REAL)""")
+        columnas = {fila[1] for fila in self.db.execute("PRAGMA table_info(pedidos)")}
+        if "entregado_en" not in columnas:
+            self.db.execute("ALTER TABLE pedidos ADD COLUMN entregado_en REAL")
         self.db.execute("CREATE TABLE IF NOT EXISTS meta (clave TEXT PRIMARY KEY, valor INTEGER NOT NULL)")
         self.db.commit()
         fila = self.db.execute("SELECT valor FROM meta WHERE clave='version'").fetchone()
         self.version = fila[0] if fila else 0
+        # Cada entrada: (momento, descripción, [(numero, fila anterior o None), ...])
+        self.deshacer_pila: list[tuple[float, str, list]] = []
         self.suscriptores: set[asyncio.Queue] = set()
         self.loop = None
 
     # -- lectura
 
+    def _deshacer_disponible(self):
+        limite = time.time() - DESHACER_MINUTOS * 60
+        while self.deshacer_pila and self.deshacer_pila[0][0] < limite:
+            self.deshacer_pila.pop(0)
+        return self.deshacer_pila[-1][1] if self.deshacer_pila else None
+
     def estado(self) -> dict:
         with self.lock:
-            filas = self.db.execute(
-                "SELECT numero, listo_en, avisado_en, avisos, origen FROM pedidos ORDER BY avisado_en DESC"
-            ).fetchall()
+            filas = self.db.execute(f"SELECT {COLUMNAS} FROM pedidos ORDER BY avisado_en DESC").fetchall()
             version = self.version
+            deshacer = self._deshacer_disponible()
         pedidos = [
-            {"numero": n, "listo_en": l, "avisado_en": a, "avisos": c, "origen": o}
-            for n, l, a, c, o in filas
+            {"numero": n, "listo_en": l, "avisado_en": a, "avisos": c, "origen": o,
+             "entregado": e is not None}
+            for n, l, a, c, o, e in filas
         ]
         return {
             "version": version,
             "ultimo": pedidos[0] if pedidos else None,
             "pedidos": pedidos,
+            "deshacer": deshacer,
             "max_visibles": MAX_VISIBLES,
             "max_digitos": MAX_DIGITOS,
             "ahora": time.time(),
         }
 
-    # -- cambios
+    def pedido(self, numero: str):
+        return next((p for p in self.estado()["pedidos"] if p["numero"] == numero), None)
+
+    # -- cambios (llamar con self.lock tomado)
 
     def _cambio(self):
         self.version += 1
@@ -160,51 +184,98 @@ class Avisador:
         )
         self.db.commit()
 
+    def _fila(self, numero: str):
+        return self.db.execute(f"SELECT {COLUMNAS} FROM pedidos WHERE numero=?", (numero,)).fetchone()
+
+    def _apuntar(self, descripcion: str, anteriores: list):
+        self.deshacer_pila.append((time.time(), descripcion, anteriores))
+        del self.deshacer_pila[:-MAX_DESHACER]
+
+    # -- acciones
+
     def avisar(self, numero: str, origen: str) -> dict:
         """Marca un pedido como listo. Si ya lo estaba, vuelve a avisar."""
         ahora = time.time()
         with self.lock:
+            anterior = self._fila(numero)
             self.db.execute(
                 """INSERT INTO pedidos(numero, listo_en, avisado_en, avisos, origen) VALUES(?,?,?,1,?)
-                   ON CONFLICT(numero) DO UPDATE SET avisado_en=excluded.avisado_en, avisos=avisos+1""",
+                   ON CONFLICT(numero) DO UPDATE SET avisado_en=excluded.avisado_en,
+                       avisos=avisos+1, entregado_en=NULL""",
                 (numero, ahora, ahora, origen),
             )
+            self._apuntar(f"comanda {numero} " + ("avisada de nou" if anterior else "avisada"),
+                          [(numero, anterior)])
             self._cambio()
         self.publicar()
         return self.pedido(numero)
 
     def quitar(self, numero: str) -> bool:
+        """Lo borra del visor sin más."""
         with self.lock:
-            borrados = self.db.execute("DELETE FROM pedidos WHERE numero=?", (numero,)).rowcount
-            if borrados:
+            anterior = self._fila(numero)
+            if anterior:
+                self.db.execute("DELETE FROM pedidos WHERE numero=?", (numero,))
+                self._apuntar(f"comanda {numero} eliminada", [(numero, anterior)])
                 self._cambio()
-        if borrados:
+        if anterior:
             self.publicar()
-        return bool(borrados)
+        return bool(anterior)
+
+    def entregar(self, numero: str) -> bool:
+        """Lo marca como entregado: cambia de color unos segundos y desaparece."""
+        with self.lock:
+            anterior = self._fila(numero)
+            if anterior:
+                self.db.execute("UPDATE pedidos SET entregado_en=? WHERE numero=?", (time.time(), numero))
+                self._apuntar(f"comanda {numero} entregada", [(numero, anterior)])
+                self._cambio()
+        if anterior:
+            self.publicar()
+            if self.loop is not None:
+                self.loop.call_soon_threadsafe(self.loop.call_later, SEGUNDOS_ENTREGA + 0.05, self.caducar)
+        return bool(anterior)
 
     def vaciar(self) -> int:
         with self.lock:
-            borrados = self.db.execute("DELETE FROM pedidos").rowcount
-            if borrados:
+            anteriores = self.db.execute(f"SELECT {COLUMNAS} FROM pedidos").fetchall()
+            if anteriores:
+                self.db.execute("DELETE FROM pedidos")
+                self._apuntar("buidar el visor", [(fila[0], fila) for fila in anteriores])
                 self._cambio()
-        if borrados:
+        if anteriores:
             self.publicar()
-        return borrados
+        return len(anteriores)
+
+    def deshacer(self):
+        """Deshace la última acción (de cualquier empleado o de la API)."""
+        with self.lock:
+            if not self._deshacer_disponible():
+                return None
+            _, descripcion, anteriores = self.deshacer_pila.pop()
+            for numero, fila in anteriores:
+                self.db.execute("DELETE FROM pedidos WHERE numero=?", (numero,))
+                if fila:
+                    self.db.execute(
+                        f"INSERT INTO pedidos({COLUMNAS}) VALUES(?,?,?,?,?,NULL)", fila[:5])
+            self._cambio()
+        self.publicar()
+        return descripcion
 
     def caducar(self) -> int:
-        if EXPIRA_MINUTOS <= 0:
-            return 0
-        limite = time.time() - EXPIRA_MINUTOS * 60
+        """Quita los entregados tras su color y los que llevan demasiado en pantalla."""
+        ahora = time.time()
+        limite = ahora - EXPIRA_MINUTOS * 60 if EXPIRA_MINUTOS > 0 else 0
         with self.lock:
-            borrados = self.db.execute("DELETE FROM pedidos WHERE avisado_en < ?", (limite,)).rowcount
+            borrados = self.db.execute(
+                "DELETE FROM pedidos WHERE avisado_en < ? OR entregado_en <= ?",
+                (limite, ahora - SEGUNDOS_ENTREGA),
+            ).rowcount
             if borrados:
                 self._cambio()
         if borrados:
             self.publicar()
         return borrados
-
-    def pedido(self, numero: str):
-        return next((p for p in self.estado()["pedidos"] if p["numero"] == numero), None)
 
     # -- tiempo real
 
@@ -230,8 +301,8 @@ avisador = Avisador(DB_PATH)
 
 async def _caducar_periodicamente():
     while True:
-        await asyncio.sleep(20)
         await asyncio.to_thread(avisador.caducar)
+        await asyncio.sleep(20)
 
 
 @asynccontextmanager
@@ -242,14 +313,14 @@ async def ciclo(app: FastAPI):
     tarea.cancel()
 
 
-app = FastAPI(title="Avisador de comandas", version="1.0.0", lifespan=ciclo,
+app = FastAPI(title="Avisador de comandas", version="1.1.0", lifespan=ciclo,
               docs_url="/api/docs", redoc_url=None, openapi_url="/api/openapi.json")
 
 
 def normalizar(numero) -> str:
     texto = str(numero).strip()
     if not NUMERO_RE.match(texto):
-        raise HTTPException(422, f"El número debe tener entre 1 y {MAX_DIGITOS} cifras")
+        raise HTTPException(422, f"El número ha de tenir entre 1 i {MAX_DIGITOS} xifres")
     return str(int(texto))
 
 
@@ -267,7 +338,7 @@ def login(datos: Login, response: Response):
         rol = "visor"
     else:
         time.sleep(0.5)
-        raise HTTPException(401, "Contraseña incorrecta")
+        raise HTTPException(401, "Contrasenya incorrecta")
     response.set_cookie(COOKIE, crear_token(rol), max_age=DURACION_SESION[rol],
                         httponly=True, samesite="strict", secure=COOKIE_SEGURA)
     return {"rol": rol}
@@ -308,11 +379,19 @@ def volver_a_avisar(numero: str, rol=Depends(puede_avisar)):
     return avisador.avisar(normalizar(numero), rol)
 
 
+@app.post("/api/v1/pedidos/{numero}/entregar", tags=["pedidos"])
+def entregar(numero: str, rol=Depends(puede_avisar)):
+    """Pedido entregado: cambia de color 2 segundos en el visor y desaparece."""
+    if not avisador.entregar(normalizar(numero)):
+        raise HTTPException(404, "Aquesta comanda no és al visor")
+    return {"ok": True}
+
+
 @app.delete("/api/v1/pedidos/{numero}", tags=["pedidos"])
 def quitar(numero: str, rol=Depends(puede_avisar)):
-    """Quita un pedido del visor (ya recogido)."""
+    """Elimina un pedido del visor al momento, sin marcarlo como entregado."""
     if not avisador.quitar(normalizar(numero)):
-        raise HTTPException(404, "Ese pedido no está en el visor")
+        raise HTTPException(404, "Aquesta comanda no és al visor")
     return {"ok": True}
 
 
@@ -320,6 +399,15 @@ def quitar(numero: str, rol=Depends(puede_avisar)):
 def vaciar(rol=Depends(puede_avisar)):
     """Quita todos los pedidos del visor."""
     return {"quitados": avisador.vaciar()}
+
+
+@app.post("/api/v1/deshacer", tags=["pedidos"])
+def deshacer(rol=Depends(puede_avisar)):
+    """Deshace la última acción (avisar, entregar, eliminar o vaciar) de los últimos 10 minutos."""
+    descripcion = avisador.deshacer()
+    if descripcion is None:
+        raise HTTPException(404, "No hi ha res per desfer")
+    return {"deshecho": descripcion}
 
 
 @app.get("/api/v1/eventos", tags=["pedidos"])

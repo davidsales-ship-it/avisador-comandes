@@ -7,15 +7,18 @@ Muestra en una pantalla grande los números de pedido listos para recoger. Los e
 | Usuario | Contraseña | Qué ve |
 |---|---|---|
 | **Visor** | `VISOR_PASSWORD` | `/visor`: pantalla en horizontal con el último pedido en grande y el resto de pedidos listos al lado. Solo puede mirar. La sesión dura un año, así que la pantalla no se desconecta. |
-| **Empleado** | `EMPLEADO_PASSWORD` | `/empleado`: teclado numérico para avisar un pedido, y la lista de lo que está en el visor con *Avisar otra vez* y *Quitar*. También acepta el teclado físico (cifras, Intro, Retroceso, Esc). La sesión dura 30 días. |
+| **Empleado** | `EMPLEADO_PASSWORD` | `/empleado`: teclado numérico para avisar un pedido, y la lista de lo que está en el visor con *Avisar de nou*, *Entregada* y *Eliminar*, más un botón *Desfer*. También acepta el teclado físico (cifras, Intro, Retroceso, Esc). Puede abrir el visor y volver con *← Tornar*. La sesión dura 30 días. |
 
-Las dos entran por la misma página (`/`); la contraseña decide el papel.
+Las dos entran por la misma página (`/`); la contraseña decide el papel. Los textos de las pantallas están en catalán.
 
 En el visor, toca la pantalla una vez al encenderlo: el navegador exige un toque para permitir el sonido y la pantalla completa. La página también pide que la pantalla no se apague.
 
 ## Comportamiento
 
 - Avisar un número que ya está en el visor lo vuelve a avisar: pasa a ser el principal y suena otra vez.
+- *Entregada*: la comanda cambia de color (azul) durante 2 segundos en el visor y desaparece.
+- *Eliminar*: la comanda desaparece del visor al momento, sin cambio de color.
+- *Desfer*: deshace la última acción (avisar, entregar, eliminar o vaciar) de cualquier empleado o de la API, de los últimos 10 minutos. Se puede pulsar varias veces para ir hacia atrás.
 - Cada pedido desaparece solo `EXPIRA_MINUTOS` después de su último aviso (15 por defecto; `0` lo desactiva).
 - Los números son solo cifras, de 1 a `MAX_DIGITOS` (4 por defecto). Los ceros a la izquierda se quitan: `042` es el pedido `42`.
 - El estado se guarda en SQLite, de modo que un reinicio no vacía el visor.
@@ -70,9 +73,11 @@ La documentación interactiva (OpenAPI) está en `/api/docs`.
 |---|---|---|
 | `POST` | `/api/v1/pedidos` | Avisa un pedido. Cuerpo: `{"numero": "42"}` (texto o número). Si ya estaba, lo vuelve a avisar. Responde `201` con el pedido. |
 | `POST` | `/api/v1/pedidos/{numero}/avisar` | Vuelve a avisar un pedido. |
-| `DELETE` | `/api/v1/pedidos/{numero}` | Quita un pedido (recogido). `404` si no estaba. |
+| `POST` | `/api/v1/pedidos/{numero}/entregar` | Pedido entregado: cambia de color 2 segundos y desaparece. `404` si no estaba. |
+| `DELETE` | `/api/v1/pedidos/{numero}` | Elimina un pedido al momento. `404` si no estaba. |
 | `DELETE` | `/api/v1/pedidos` | Vacía el visor. |
-| `GET` | `/api/v1/pedidos` | Estado actual: `ultimo`, `pedidos` (el último avisado primero), `version`. |
+| `POST` | `/api/v1/deshacer` | Deshace la última acción. Responde `{"deshecho": "comanda 42 entregada"}`, o `404` si no hay nada. |
+| `GET` | `/api/v1/pedidos` | Estado actual: `ultimo`, `pedidos` (el último avisado primero; `entregado: true` mientras dura el color), `deshacer` (descripción de lo que se desharía) y `version`. |
 | `GET` | `/api/v1/eventos` | [Server-Sent Events](https://developer.mozilla.org/es/docs/Web/API/Server-sent_events): manda el estado completo cada vez que cambia. |
 
 Ejemplos:
@@ -90,12 +95,12 @@ curl -X DELETE https://tu-servidor/api/v1/pedidos/42 -H "X-API-Key: $API_KEY"
 Respuesta de un aviso:
 
 ```json
-{"numero": "42", "listo_en": 1763222400.1, "avisado_en": 1763222400.1, "avisos": 1, "origen": "api"}
+{"numero": "42", "listo_en": 1763222400.1, "avisado_en": 1763222400.1, "avisos": 1, "origen": "api", "entregado": false}
 ```
 
 `origen` indica quién lo avisó (`empleado` o `api`). Las horas son segundos Unix.
 
-Errores: `401` sin credenciales o clave incorrecta, `403` si lo intenta el visor, `422` si el número no es válido.
+Los mensajes de error (`detail`) están en catalán, porque se muestran en la pantalla de empleado. Errores: `401` sin credenciales o clave incorrecta, `403` si lo intenta el visor, `422` si el número no es válido.
 
 ## Pruebas
 

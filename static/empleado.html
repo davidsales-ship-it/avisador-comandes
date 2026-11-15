@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="es">
+<html lang="ca">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Avisar pedidos</title>
+<title>Avisar comandes</title>
 <link rel="stylesheet" href="/static/estilo.css">
 <style>
   body { min-height: 100vh; }
@@ -39,27 +39,37 @@
   #avisar:disabled { opacity: .45; cursor: default; }
   .mensaje { min-height: 1.4em; margin: 10px 0 0; text-align: center; color: var(--suave); }
   .mensaje.error { color: var(--peligro); }
-  .cabecera-lista { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  #desfer {
+    width: 100%; margin-top: 8px; padding: 12px; border-radius: 10px;
+    border: 1px dashed var(--borde); background: none; color: var(--texto);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .cabecera-lista { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; }
   .cabecera-lista h2 { margin: 0; font-size: 1.05rem; }
   #lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
   #lista li {
-    display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center;
-    padding: 8px 8px 8px 14px; border: 1px solid var(--borde); border-radius: 10px;
+    display: grid; gap: 8px; padding: 10px; border: 1px solid var(--borde); border-radius: 10px;
+    transition: background .2s, opacity .2s;
   }
-  .num { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .hace { display: block; font-size: .8rem; color: var(--suave); font-weight: 400; }
+  #lista li.entregada { background: var(--entrega-fons); border-color: var(--entrega); opacity: .7; }
+  .num { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; padding-left: 4px; }
+  .hace { font-size: .85rem; color: var(--suave); font-weight: 400; margin-left: 10px; }
+  .accions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
   .accion { border: 1px solid var(--borde); background: var(--fondo); color: var(--texto); border-radius: 8px; padding: 10px 12px; }
+  .accion.entregar { background: var(--entrega); border-color: var(--entrega); color: #fff; font-weight: 600; }
   .quitar { color: var(--peligro); }
   .vacia { color: var(--suave); text-align: center; padding: 16px 0; }
+  :root { --entrega: #2f6fd1; --entrega-fons: #e3edfc; }
+  @media (prefers-color-scheme: dark) { :root { --entrega: #4c9dff; --entrega-fons: #16263d; } }
 </style>
 </head>
 <body>
 <div class="barra">
-  <h1>Avisar pedidos</h1>
+  <h1>Avisar comandes</h1>
   <nav>
-    <span id="conexion" title="Conexión"><span class="punto"></span></span>
-    <a class="enlace" href="/visor" target="_blank" rel="noopener">Ver visor</a>
-    <button class="enlace" id="salir" type="button">Salir</button>
+    <span id="conexion" title="Connexió"><span class="punto"></span></span>
+    <a class="enlace" href="/visor">Veure visor</a>
+    <button class="enlace" id="salir" type="button">Sortir</button>
   </nav>
 </div>
 <main>
@@ -69,17 +79,18 @@
       <button type="button" data-d="1">1</button><button type="button" data-d="2">2</button><button type="button" data-d="3">3</button>
       <button type="button" data-d="4">4</button><button type="button" data-d="5">5</button><button type="button" data-d="6">6</button>
       <button type="button" data-d="7">7</button><button type="button" data-d="8">8</button><button type="button" data-d="9">9</button>
-      <button type="button" class="borrar" id="limpiar">Borrar</button>
+      <button type="button" class="borrar" id="limpiar">Esborrar</button>
       <button type="button" data-d="0">0</button>
-      <button type="button" class="borrar" id="retroceso" aria-label="Borrar última cifra">⌫</button>
+      <button type="button" class="borrar" id="retroceso" aria-label="Esborrar l'última xifra">⌫</button>
     </div>
     <button type="button" class="primario" id="avisar" disabled>Avisar</button>
+    <button type="button" id="desfer" hidden></button>
     <p class="mensaje" id="mensaje"></p>
   </section>
   <section class="panel">
     <div class="cabecera-lista">
-      <h2>En el visor</h2>
-      <button type="button" class="accion quitar" id="vaciar" hidden>Quitar todos</button>
+      <h2>Al visor</h2>
+      <button type="button" class="accion quitar" id="vaciar" hidden>Eliminar-les totes</button>
     </div>
     <ul id="lista"></ul>
   </section>
@@ -124,36 +135,45 @@ async function api(metodo, ruta, cuerpo) {
     headers: cuerpo ? {'Content-Type': 'application/json'} : {},
     body: cuerpo ? JSON.stringify(cuerpo) : undefined,
   });
-  if (r.status === 401) { location.href = '/'; throw new Error('Sesión caducada'); }
+  if (r.status === 401) { location.href = '/'; throw new Error('Sessió caducada'); }
   const datos = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(typeof datos.detail === 'string' ? datos.detail : 'Error ' + r.status);
   return datos;
 }
 
+async function accio(fn, missatge) {
+  try { await fn(); aviso(missatge); }
+  catch (e) { aviso(e.message, true); }
+}
+
 async function avisar(n) {
   try {
     const p = await api('POST', '/api/v1/pedidos', {numero: n});
-    aviso(p.avisos > 1 ? `Pedido ${p.numero} avisado otra vez` : `Pedido ${p.numero} en el visor`);
+    aviso(p.avisos > 1 ? `Comanda ${p.numero} avisada de nou` : `Comanda ${p.numero} al visor`);
     if (n === numero) { numero = ''; pintarNumero(); }
   } catch (e) { aviso(e.message, true); }
 }
 
-async function quitar(n) {
-  try { await api('DELETE', '/api/v1/pedidos/' + encodeURIComponent(n)); aviso(`Pedido ${n} quitado`); }
-  catch (e) { aviso(e.message, true); }
-}
+const entregar = (n) => accio(() => api('POST', `/api/v1/pedidos/${encodeURIComponent(n)}/entregar`), `Comanda ${n} entregada`);
+const quitar = (n) => accio(() => api('DELETE', '/api/v1/pedidos/' + encodeURIComponent(n)), `Comanda ${n} eliminada`);
 
-$('vaciar').addEventListener('click', async () => {
-  if (!confirm('¿Quitar todos los pedidos del visor?')) return;
-  try { await api('DELETE', '/api/v1/pedidos'); aviso('Visor vacío'); }
-  catch (e) { aviso(e.message, true); }
+$('vaciar').addEventListener('click', () => {
+  if (!confirm('Vols eliminar totes les comandes del visor?')) return;
+  accio(() => api('DELETE', '/api/v1/pedidos'), 'Visor buit');
+});
+
+$('desfer').addEventListener('click', async () => {
+  try {
+    const r = await api('POST', '/api/v1/deshacer');
+    aviso(`Desfet: ${r.deshecho}`);
+  } catch (e) { aviso(e.message, true); }
 });
 
 $('salir').addEventListener('click', async () => { await fetch('/api/logout', {method: 'POST'}); location.href = '/'; });
 
 function hace(segundos) {
   const m = Math.floor(segundos / 60);
-  return m < 1 ? 'ahora mismo' : `hace ${m} min`;
+  return m < 1 ? 'ara mateix' : `fa ${m} min`;
 }
 
 function boton(texto, clase, accion) {
@@ -165,13 +185,15 @@ function boton(texto, clase, accion) {
 
 function pintarLista() {
   if (!estado) return;
-  const ahora = Date.now() / 1000;
-  const desfase = ahora - estado.recibido;
-  $('vaciar').hidden = estado.pedidos.length === 0;
+  const desfase = Date.now() / 1000 - estado.recibido;
+  $('desfer').hidden = !estado.deshacer;
+  $('desfer').textContent = estado.deshacer ? `↶ Desfer: ${estado.deshacer}` : '';
+  const actives = estado.pedidos.filter((p) => !p.entregado);
+  $('vaciar').hidden = actives.length === 0;
   if (estado.pedidos.length === 0) {
     const li = document.createElement('li');
     li.className = 'vacia'; li.style.border = '0';
-    li.textContent = 'No hay pedidos en el visor';
+    li.textContent = 'No hi ha comandes al visor';
     $('lista').replaceChildren(li);
     return;
   }
@@ -181,9 +203,23 @@ function pintarLista() {
     num.className = 'num'; num.textContent = p.numero;
     const sub = document.createElement('span');
     sub.className = 'hace';
+    if (p.entregado) {
+      li.className = 'entregada';
+      sub.textContent = 'entregada';
+      num.appendChild(sub);
+      li.append(num);
+      return li;
+    }
     sub.textContent = hace(estado.ahora + desfase - p.avisado_en) + (p.avisos > 1 ? ` · ${p.avisos} avisos` : '');
     num.appendChild(sub);
-    li.append(num, boton('Avisar otra vez', '', () => avisar(p.numero)), boton('Quitar', 'quitar', () => quitar(p.numero)));
+    const accions = document.createElement('div');
+    accions.className = 'accions';
+    accions.append(
+      boton('Avisar de nou', '', () => avisar(p.numero)),
+      boton('Entregada', 'entregar', () => entregar(p.numero)),
+      boton('Eliminar', 'quitar', () => quitar(p.numero)),
+    );
+    li.append(num, accions);
     return li;
   }));
 }
@@ -203,7 +239,7 @@ function conectar() {
     try {
       const {rol} = await (await fetch('/api/sesion')).json();
       if (rol !== 'empleado') { fuente.close(); location.href = '/'; }
-    } catch (e) { /* EventSource reintenta solo */ }
+    } catch (e) { /* EventSource reintenta sol */ }
   };
 }
 pintarNumero();
