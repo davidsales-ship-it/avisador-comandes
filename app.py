@@ -210,31 +210,52 @@ class Avisador:
         self.publicar()
         return self.pedido(numero)
 
-    def quitar(self, numero: str) -> bool:
-        """Lo borra del visor sin más."""
-        with self.lock:
-            anterior = self._fila(numero)
-            if anterior:
-                self.db.execute("DELETE FROM pedidos WHERE numero=?", (numero,))
-                self._apuntar(f"comanda {numero} eliminada", [(numero, anterior)])
-                self._cambio()
-        if anterior:
-            self.publicar()
-        return bool(anterior)
+    def _varias(self, numeros) -> list:
+        """Las filas actuales de esos números (sin repetir), en el orden recibido."""
+        vistos, filas = set(), []
+        for numero in numeros:
+            if numero in vistos:
+                continue
+            vistos.add(numero)
+            fila = self._fila(numero)
+            if fila:
+                filas.append(fila)
+        return filas
 
-    def entregar(self, numero: str) -> bool:
-        """Lo marca como entregado: cambia de color unos segundos y desaparece."""
+    @staticmethod
+    def _describir(filas, singular: str, plural: str) -> str:
+        numeros = [fila[0] for fila in filas]
+        if len(numeros) == 1:
+            return f"comanda {numeros[0]} {singular}"
+        return f"comandes {', '.join(numeros)} {plural}"
+
+    def quitar(self, numeros) -> list:
+        """Las borra del visor sin más. Devuelve los números que estaban."""
         with self.lock:
-            anterior = self._fila(numero)
-            if anterior:
-                self.db.execute("UPDATE pedidos SET entregado_en=? WHERE numero=?", (time.time(), numero))
-                self._apuntar(f"comanda {numero} entregada", [(numero, anterior)])
+            filas = self._varias(numeros)
+            if filas:
+                self.db.executemany("DELETE FROM pedidos WHERE numero=?", [(f[0],) for f in filas])
+                self._apuntar(self._describir(filas, "eliminada", "eliminades"), [(f[0], f) for f in filas])
                 self._cambio()
-        if anterior:
+        if filas:
+            self.publicar()
+        return [f[0] for f in filas]
+
+    def entregar(self, numeros) -> list:
+        """Las marca como entregadas: cambian de color unos segundos y desaparecen."""
+        with self.lock:
+            filas = [f for f in self._varias(numeros) if f[5] is None]  # no las ya entregadas
+            if filas:
+                ahora = time.time()
+                self.db.executemany("UPDATE pedidos SET entregado_en=? WHERE numero=?",
+                                    [(ahora, f[0]) for f in filas])
+                self._apuntar(self._describir(filas, "entregada", "entregades"), [(f[0], f) for f in filas])
+                self._cambio()
+        if filas:
             self.publicar()
             if self.loop is not None:
                 self.loop.call_soon_threadsafe(self.loop.call_later, SEGUNDOS_ENTREGA + 0.05, self.caducar)
-        return bool(anterior)
+        return [f[0] for f in filas]
 
     def vaciar(self) -> int:
         with self.lock:
@@ -379,20 +400,42 @@ def volver_a_avisar(numero: str, rol=Depends(puede_avisar)):
     return avisador.avisar(normalizar(numero), rol)
 
 
+class VariosPedidos(BaseModel):
+    numeros: list[str | int]
+
+
+def _numeros(datos: VariosPedidos) -> list[str]:
+    if not datos.numeros:
+        raise HTTPException(422, "Cal indicar alguna comanda")
+    return [normalizar(n) for n in datos.numeros]
+
+
 @app.post("/api/v1/pedidos/{numero}/entregar", tags=["pedidos"])
 def entregar(numero: str, rol=Depends(puede_avisar)):
     """Pedido entregado: cambia de color 2 segundos en el visor y desaparece."""
-    if not avisador.entregar(normalizar(numero)):
+    if not avisador.entregar([normalizar(numero)]):
         raise HTTPException(404, "Aquesta comanda no és al visor")
     return {"ok": True}
+
+
+@app.post("/api/v1/pedidos/entregar", tags=["pedidos"])
+def entregar_varios(datos: VariosPedidos, rol=Depends(puede_avisar)):
+    """Entrega varios pedidos a la vez. Cuerpo: {"numeros": ["12", "37"]}. Ignora los que no estén."""
+    return {"entregados": avisador.entregar(_numeros(datos))}
 
 
 @app.delete("/api/v1/pedidos/{numero}", tags=["pedidos"])
 def quitar(numero: str, rol=Depends(puede_avisar)):
     """Elimina un pedido del visor al momento, sin marcarlo como entregado."""
-    if not avisador.quitar(normalizar(numero)):
+    if not avisador.quitar([normalizar(numero)]):
         raise HTTPException(404, "Aquesta comanda no és al visor")
     return {"ok": True}
+
+
+@app.post("/api/v1/pedidos/eliminar", tags=["pedidos"])
+def quitar_varios(datos: VariosPedidos, rol=Depends(puede_avisar)):
+    """Elimina varios pedidos a la vez. Cuerpo: {"numeros": ["12", "37"]}. Ignora los que no estén."""
+    return {"eliminados": avisador.quitar(_numeros(datos))}
 
 
 @app.delete("/api/v1/pedidos", tags=["pedidos"])

@@ -64,23 +64,39 @@
     .mensaje { margin-top: 6px; font-size: .9rem; min-height: 1.2em; }
     .mensaje:empty { margin: 0; min-height: 0; }
     .cabecera-lista { margin-bottom: 6px; }
-    #lista li { padding: 8px; gap: 6px; }
-    .accion { padding: 8px 6px; }
+    .accions-sel button { padding: 10px 4px; }
   }
   .cabecera-lista { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; }
   .cabecera-lista h2 { margin: 0; font-size: 1.05rem; }
-  #lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-  #lista li {
-    display: grid; gap: 8px; padding: 10px; border: 1px solid var(--borde); border-radius: 10px;
-    transition: background .2s, opacity .2s;
+  .accions-sel { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+  .accions-sel button {
+    border: 1px solid var(--borde); background: var(--fondo); color: var(--texto);
+    border-radius: 10px; padding: 12px 6px; font-weight: 600;
   }
-  #lista li.entregada { background: var(--entrega-fons); border-color: var(--entrega); opacity: .7; }
-  .num { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; padding-left: 4px; }
-  .hace { font-size: .85rem; color: var(--suave); font-weight: 400; margin-left: 10px; }
-  .accions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .accion { border: 1px solid var(--borde); background: var(--fondo); color: var(--texto); border-radius: 8px; padding: 10px 12px; }
-  .accion.entregar { background: var(--entrega); border-color: var(--entrega); color: #fff; font-weight: 600; }
+  .accions-sel button:disabled { opacity: .4; cursor: default; }
+  .accions-sel .entregar { background: var(--entrega); border-color: var(--entrega); color: #fff; }
+  .accions-sel .quitar { color: var(--peligro); }
+  .accion { border: 1px solid var(--borde); background: var(--fondo); color: var(--texto); border-radius: 8px; padding: 8px 10px; font-size: .9rem; }
   .quitar { color: var(--peligro); }
+  #lista {
+    list-style: none; margin: 0; padding: 0;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 8px;
+  }
+  .quadret {
+    width: 100%; aspect-ratio: 1; border-radius: 12px; position: relative;
+    border: 2px solid var(--borde); background: var(--fondo); color: var(--texto);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  }
+  .quadret .num { font-size: 1.7rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+  .quadret .hace { font-size: .7rem; color: var(--suave); }
+  .quadret[aria-pressed="true"] { border-color: var(--acento); background: var(--acento); color: var(--acento-texto); }
+  .quadret[aria-pressed="true"] .hace { color: var(--acento-texto); }
+  .quadret[aria-pressed="true"]::after {
+    content: "✓"; position: absolute; top: 4px; right: 7px; font-size: .85rem; font-weight: 800;
+  }
+  .quadret.entregada { background: var(--entrega-fons); border-color: var(--entrega); opacity: .7; cursor: default; }
+  #lista .vacia { grid-column: 1 / -1; }
   .vacia { color: var(--suave); text-align: center; padding: 16px 0; }
   :root { --entrega: #2f6fd1; --entrega-fons: #e3edfc; }
   @media (prefers-color-scheme: dark) { :root { --entrega: #4c9dff; --entrega-fons: #16263d; } }
@@ -114,8 +130,13 @@
   </section>
   <section class="panel">
     <div class="cabecera-lista">
-      <h2>Al visor</h2>
+      <h2 id="titolLlista">Al visor</h2>
       <button type="button" class="accion quitar" id="vaciar" hidden>Eliminar-les totes</button>
+    </div>
+    <div class="accions-sel">
+      <button type="button" id="remarcar" disabled>Remarcar</button>
+      <button type="button" id="entregar" class="entregar" disabled>Entregada</button>
+      <button type="button" id="eliminar" class="quitar" disabled>Eliminar</button>
     </div>
     <ul id="lista"></ul>
   </section>
@@ -179,8 +200,40 @@ async function avisar(n) {
   } catch (e) { aviso(e.message, true); }
 }
 
-const entregar = (n) => accio(() => api('POST', `/api/v1/pedidos/${encodeURIComponent(n)}/entregar`), `Comanda ${n} entregada`);
-const quitar = (n) => accio(() => api('DELETE', '/api/v1/pedidos/' + encodeURIComponent(n)), `Comanda ${n} eliminada`);
+// Selecció de comandes (en ordre de selecció)
+let seleccio = [];
+
+function nomComandes(ns, singular, plural) {
+  return ns.length === 1 ? `Comanda ${ns[0]} ${singular}` : `Comandes ${ns.join(', ')} ${plural}`;
+}
+
+async function ambSeleccio(fn) {
+  const ns = seleccio.slice();
+  if (!ns.length) return;
+  seleccio = [];
+  pintarLista();
+  try { aviso(await fn(ns)); }
+  catch (e) { aviso(e.message, true); }
+}
+
+$('entregar').addEventListener('click', () => ambSeleccio(async (ns) => {
+  const r = await api('POST', '/api/v1/pedidos/entregar', {numeros: ns});
+  return r.entregados.length ? nomComandes(r.entregados, 'entregada', 'entregades') : 'Ja no eren al visor';
+}));
+$('eliminar').addEventListener('click', () => ambSeleccio(async (ns) => {
+  const r = await api('POST', '/api/v1/pedidos/eliminar', {numeros: ns});
+  return r.eliminados.length ? nomComandes(r.eliminados, 'eliminada', 'eliminades') : 'Ja no eren al visor';
+}));
+$('remarcar').addEventListener('click', () => ambSeleccio(async (ns) => {
+  for (const n of ns) await api('POST', `/api/v1/pedidos/${encodeURIComponent(n)}/avisar`);
+  return nomComandes(ns, 'remarcada', 'remarcades');
+}));
+
+function triar(n) {
+  seleccio = seleccio.includes(n) ? seleccio.filter((x) => x !== n) : [...seleccio, n];
+  $('mensaje').textContent = '';
+  pintarLista();
+}
 
 $('vaciar').addEventListener('click', () => {
   if (!confirm('Vols eliminar totes les comandes del visor?')) return;
@@ -201,51 +254,46 @@ function hace(segundos) {
   return m < 1 ? 'ara mateix' : `fa ${m} min`;
 }
 
-function boton(texto, clase, accion) {
-  const b = document.createElement('button');
-  b.type = 'button'; b.className = 'accion ' + clase; b.textContent = texto;
-  b.addEventListener('click', accion);
-  return b;
-}
-
 function pintarLista() {
   if (!estado) return;
   const desfase = Date.now() / 1000 - estado.recibido;
   $('desfer').hidden = !estado.deshacer;
   $('desferText').textContent = estado.deshacer || '';
   $('desfer').title = estado.deshacer ? `Desfer: ${estado.deshacer}` : '';
-  const actives = estado.pedidos.filter((p) => !p.entregado);
+  const actives = estado.pedidos.filter((p) => !p.entregado).map((p) => p.numero);
+  seleccio = seleccio.filter((n) => actives.includes(n));
+  const quantes = seleccio.length;
+  $('titolLlista').textContent = quantes === 0 ? 'Al visor'
+    : quantes === 1 ? '1 seleccionada' : `${quantes} seleccionades`;
+  ['remarcar', 'entregar', 'eliminar'].forEach((id) => { $(id).disabled = quantes === 0; });
   $('vaciar').hidden = actives.length === 0;
   if (estado.pedidos.length === 0) {
     const li = document.createElement('li');
-    li.className = 'vacia'; li.style.border = '0';
+    li.className = 'vacia';
     li.textContent = 'No hi ha comandes al visor';
     $('lista').replaceChildren(li);
     return;
   }
   $('lista').replaceChildren(...estado.pedidos.map((p) => {
     const li = document.createElement('li');
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'quadret';
     const num = document.createElement('span');
     num.className = 'num'; num.textContent = p.numero;
     const sub = document.createElement('span');
     sub.className = 'hace';
     if (p.entregado) {
-      li.className = 'entregada';
+      b.classList.add('entregada');
+      b.disabled = true;
       sub.textContent = 'entregada';
-      num.appendChild(sub);
-      li.append(num);
-      return li;
+    } else {
+      b.setAttribute('aria-pressed', seleccio.includes(p.numero) ? 'true' : 'false');
+      sub.textContent = hace(estado.ahora + desfase - p.avisado_en);
+      b.addEventListener('click', () => triar(p.numero));
     }
-    sub.textContent = hace(estado.ahora + desfase - p.avisado_en) + (p.avisos > 1 ? ` · ${p.avisos} avisos` : '');
-    num.appendChild(sub);
-    const accions = document.createElement('div');
-    accions.className = 'accions';
-    accions.append(
-      boton('Avisar de nou', '', () => avisar(p.numero)),
-      boton('Entregada', 'entregar', () => entregar(p.numero)),
-      boton('Eliminar', 'quitar', () => quitar(p.numero)),
-    );
-    li.append(num, accions);
+    b.append(num, sub);
+    li.append(b);
     return li;
   }));
 }

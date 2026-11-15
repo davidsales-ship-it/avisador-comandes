@@ -7,7 +7,7 @@ Muestra en una pantalla grande los números de pedido listos para recoger. Los e
 | Usuario | Contraseña | Qué ve |
 |---|---|---|
 | **Visor** | `VISOR_PASSWORD` | `/visor`: pantalla en horizontal con el último pedido en grande y el resto de pedidos listos al lado. Solo puede mirar. La sesión dura un año, así que la pantalla no se desconecta. |
-| **Empleado** | `EMPLEADO_PASSWORD` | `/empleado`: teclado numérico para avisar un pedido, y la lista de lo que está en el visor con *Avisar de nou*, *Entregada* y *Eliminar*, más un botón *Desfer*. También acepta el teclado físico (cifras, Intro, Retroceso, Esc). Puede abrir el visor y volver con *← Tornar*. La sesión dura 30 días. |
+| **Empleado** | `EMPLEADO_PASSWORD` | `/empleado`: teclado numérico para avisar un pedido, y la lista de lo que está en el visor en cuadros: se tocan para seleccionar una o varias y se aplica *Remarcar* (volver a avisar), *Entregada* o *Eliminar*. Además, un botón *Desfer*. También acepta el teclado físico (cifras, Intro, Retroceso, Esc). Puede abrir el visor y volver con *← Tornar*. La sesión dura 30 días. |
 
 Las dos entran por la misma página (`/`); la contraseña decide el papel. Los textos de las pantallas están en catalán.
 
@@ -18,6 +18,7 @@ En el visor, toca la pantalla una vez al encenderlo: el navegador exige un toque
 - Avisar un número que ya está en el visor lo vuelve a avisar: pasa a ser el principal y suena otra vez.
 - *Entregada*: la comanda cambia de color (azul) durante 2 segundos en el visor y desaparece.
 - *Eliminar*: la comanda desaparece del visor al momento, sin cambio de color.
+- *Remarcar*: vuelve a avisar, la comanda vuelve a salir en grande y suena. Con varias seleccionadas, la última elegida queda en grande.
 - *Desfer*: deshace la última acción (avisar, entregar, eliminar o vaciar) de cualquier empleado o de la API, de los últimos 10 minutos. Se puede pulsar varias veces para ir hacia atrás.
 - Cada pedido desaparece solo `EXPIRA_MINUTOS` después de su último aviso (15 por defecto; `0` lo desactiva).
 - Los números son solo cifras, de 1 a `MAX_DIGITOS` (4 por defecto). Los ceros a la izquierda se quitan: `042` es el pedido `42`.
@@ -75,6 +76,8 @@ La documentación interactiva (OpenAPI) está en `/api/docs`.
 | `POST` | `/api/v1/pedidos/{numero}/avisar` | Vuelve a avisar un pedido. |
 | `POST` | `/api/v1/pedidos/{numero}/entregar` | Pedido entregado: cambia de color 2 segundos y desaparece. `404` si no estaba. |
 | `DELETE` | `/api/v1/pedidos/{numero}` | Elimina un pedido al momento. `404` si no estaba. |
+| `POST` | `/api/v1/pedidos/entregar` | Entrega varios a la vez. Cuerpo: `{"numeros": ["12", "37"]}`. Responde `{"entregados": [...]}` con los que estaban. |
+| `POST` | `/api/v1/pedidos/eliminar` | Elimina varios a la vez. Cuerpo: `{"numeros": ["12", "37"]}`. Responde `{"eliminados": [...]}`. |
 | `DELETE` | `/api/v1/pedidos` | Vacía el visor. |
 | `POST` | `/api/v1/deshacer` | Deshace la última acción. Responde `{"deshecho": "comanda 42 entregada"}`, o `404` si no hay nada. |
 | `GET` | `/api/v1/pedidos` | Estado actual: `ultimo`, `pedidos` (el último avisado primero; `entregado: true` mientras dura el color), `deshacer` (descripción de lo que se desharía) y `version`. |

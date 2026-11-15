@@ -217,3 +217,31 @@ def test_deshacer(modulo, empleado):
 
 def test_visor_no_puede_deshacer(visor):
     assert visor.post("/api/v1/deshacer").status_code == 403
+
+
+def test_entregar_y_eliminar_varias(modulo, empleado):
+    for n in (1, 2, 3, 4):
+        empleado.post("/api/v1/pedidos", json={"numero": n})
+    r = empleado.post("/api/v1/pedidos/entregar", json={"numeros": ["1", 3, "99", "1"]})
+    assert r.json() == {"entregados": ["1", "3"]}
+    estado = empleado.get("/api/v1/pedidos").json()
+    assert estado["deshacer"] == "comandes 1, 3 entregades"
+    assert {p["numero"] for p in estado["pedidos"] if p["entregado"]} == {"1", "3"}
+    # una ya entregada no se vuelve a entregar
+    assert empleado.post("/api/v1/pedidos/entregar", json={"numeros": ["1"]}).json() == {"entregados": []}
+
+    r = empleado.post("/api/v1/pedidos/eliminar", json={"numeros": ["2", "4"]})
+    assert r.json() == {"eliminados": ["2", "4"]}
+    # desfer de un sol cop
+    empleado.post("/api/v1/deshacer")
+    actives = [p["numero"] for p in empleado.get("/api/v1/pedidos").json()["pedidos"] if not p["entregado"]]
+    assert sorted(actives) == ["2", "4"]
+    empleado.post("/api/v1/deshacer")
+    actives = [p["numero"] for p in empleado.get("/api/v1/pedidos").json()["pedidos"] if not p["entregado"]]
+    assert sorted(actives) == ["1", "2", "3", "4"]
+
+
+def test_varias_validacion(empleado, visor):
+    assert empleado.post("/api/v1/pedidos/entregar", json={"numeros": []}).status_code == 422
+    assert empleado.post("/api/v1/pedidos/eliminar", json={"numeros": ["abc"]}).status_code == 422
+    assert visor.post("/api/v1/pedidos/eliminar", json={"numeros": ["1"]}).status_code == 403
