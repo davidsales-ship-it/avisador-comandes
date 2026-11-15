@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visor de pedidos</title>
+<style>
+  :root {
+    --fondo: #0d1412;
+    --panel: #15201d;
+    --texto: #f4f7f5;
+    --suave: #8fa39c;
+    --acento: #35d39f;
+    --aviso: #ffd25e;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    background: var(--fondo); color: var(--texto);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: grid; grid-template-rows: auto 1fr;
+    cursor: none;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1.5vh 3vw; font-size: clamp(16px, 2.4vh, 32px); color: var(--suave);
+  }
+  .estado { display: flex; align-items: center; gap: .6em; }
+  .punto { width: .7em; height: .7em; border-radius: 50%; background: #e05a4f; }
+  .conectado .punto { background: var(--acento); }
+  #reloj { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--texto); }
+  main {
+    display: grid; grid-template-columns: 1.35fr 1fr; gap: 2vw;
+    padding: 0 3vw 3vh; min-height: 0;
+  }
+  .principal {
+    background: var(--panel); border-radius: 2.5vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 0; overflow: hidden;
+  }
+  .titulo {
+    text-transform: uppercase; letter-spacing: .12em; font-weight: 700;
+    font-size: clamp(18px, 4.5vh, 64px); color: var(--acento);
+  }
+  #ultimo {
+    font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums;
+    font-size: min(29vw, 52vh); letter-spacing: -.02em;
+  }
+  #ultimo.c3 { font-size: min(20vw, 48vh); }
+  #ultimo.c4 { font-size: min(15vw, 40vh); }
+  #ultimo.c5 { font-size: min(12vw, 32vh); }
+  .vacio { color: var(--suave); font-size: clamp(20px, 5vh, 60px); text-align: center; padding: 0 2vw; }
+  .lateral { display: flex; flex-direction: column; min-height: 0; }
+  .lateral h2 {
+    margin: 1vh 0 2vh; font-size: clamp(16px, 3.4vh, 44px); color: var(--suave);
+    text-transform: uppercase; letter-spacing: .1em;
+  }
+  #otros {
+    list-style: none; margin: 0; padding: 0;
+    display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 1fr;
+    gap: 1.5vh 1vw; flex: 1; min-height: 0; align-content: start;
+  }
+  #otros li {
+    background: var(--panel); border-radius: 1.6vh;
+    display: grid; place-items: center; min-height: 0;
+    font-weight: 700; font-variant-numeric: tabular-nums;
+    font-size: min(4.6vw, 9vh); padding: 1vh 0;
+  }
+  .destello { animation: destello 1s ease-in-out 4; }
+  @keyframes destello {
+    0%, 100% { color: var(--texto); }
+    50% { color: var(--aviso); transform: scale(1.04); }
+  }
+  #activar {
+    position: fixed; left: 50%; bottom: 3vh; transform: translateX(-50%);
+    background: var(--aviso); color: #1b1600; border-radius: 999px;
+    padding: 1.4vh 3vw; font-weight: 700; font-size: clamp(14px, 2.4vh, 28px);
+    cursor: pointer; border: 0;
+  }
+  @media (orientation: portrait) {
+    main { grid-template-columns: 1fr; grid-template-rows: 1.2fr 1fr; }
+    #ultimo { font-size: min(45vw, 30vh); }
+    #ultimo.c3 { font-size: min(32vw, 28vh); }
+    #ultimo.c4 { font-size: min(24vw, 24vh); }
+    #ultimo.c5 { font-size: min(19vw, 20vh); }
+    #otros li { font-size: min(9vw, 6vh); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="estado" id="conexion"><span class="punto"></span><span id="conexionTexto">Conectando…</span></div>
+  <div id="reloj"></div>
+</header>
+<main>
+  <section class="principal" aria-live="assertive">
+    <div class="titulo" id="titulo">Pedido listo</div>
+    <div id="ultimo"></div>
+    <div class="vacio" id="vacio" hidden>Te avisaremos aquí cuando tu pedido esté listo</div>
+  </section>
+  <section class="lateral">
+    <h2 id="otrosTitulo">También listos</h2>
+    <ul id="otros"></ul>
+  </section>
+</main>
+<button id="activar" type="button">Toca la pantalla para activar sonido y pantalla completa</button>
+<script>
+const $ = (id) => document.getElementById(id);
+let audio = null;
+let ultimaVersion = null;
+let ultimoAviso = 0;
+let wakeLock = null;
+
+function reloj() {
+  $('reloj').textContent = new Date().toLocaleTimeString('es-ES', {hour: '2-digit', minute: '2-digit'});
+}
+reloj(); setInterval(reloj, 10000);
+
+async function mantenerEncendida() {
+  try {
+    if ('wakeLock' in navigator && document.visibilityState === 'visible') {
+      wakeLock = await navigator.wakeLock.request('screen');
+    }
+  } catch (e) { /* no disponible */ }
+}
+document.addEventListener('visibilitychange', mantenerEncendida);
+mantenerEncendida();
+
+function activar() {
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    audio.resume();
+  } catch (e) { /* sin audio */ }
+  const el = document.documentElement;
+  if (!document.fullscreenElement && el.requestFullscreen) el.requestFullscreen().catch(() => {});
+  mantenerEncendida();
+  $('activar').hidden = true;
+}
+document.addEventListener('click', activar);
+
+function campana() {
+  if (!audio || audio.state !== 'running') return;
+  const t = audio.currentTime;
+  [[880, 0], [1318.5, 0.22]].forEach(([freq, retraso]) => {
+    const osc = audio.createOscillator();
+    const gan = audio.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gan.gain.setValueAtTime(0.0001, t + retraso);
+    gan.gain.exponentialRampToValueAtTime(0.5, t + retraso + 0.02);
+    gan.gain.exponentialRampToValueAtTime(0.0001, t + retraso + 1.2);
+    osc.connect(gan).connect(audio.destination);
+    osc.start(t + retraso);
+    osc.stop(t + retraso + 1.3);
+  });
+}
+
+function destellar(el) {
+  el.classList.remove('destello');
+  void el.offsetWidth;
+  el.classList.add('destello');
+}
+
+function pintar(estado) {
+  const pedidos = estado.pedidos;
+  const ultimo = estado.ultimo;
+  const nuevoAviso = ultimo && ultimo.avisado_en > ultimoAviso;
+
+  $('ultimo').textContent = ultimo ? ultimo.numero : '';
+  const cifras = ultimo ? Math.min(ultimo.numero.length, 5) : 0;
+  $('ultimo').className = cifras >= 3 ? 'c' + cifras : '';
+  $('ultimo').hidden = !ultimo;
+  $('titulo').hidden = !ultimo;
+  $('vacio').hidden = !!ultimo;
+
+  const otros = pedidos.slice(1, estado.max_visibles);
+  $('otrosTitulo').hidden = otros.length === 0;
+  $('otros').replaceChildren(...otros.map((p) => {
+    const li = document.createElement('li');
+    li.textContent = p.numero;
+    return li;
+  }));
+
+  if (nuevoAviso && ultimaVersion !== null) {
+    destellar($('ultimo'));
+    campana();
+  }
+  ultimoAviso = ultimo ? Math.max(ultimoAviso, ultimo.avisado_en) : ultimoAviso;
+  ultimaVersion = estado.version;
+}
+
+function conectado(si) {
+  $('conexion').classList.toggle('conectado', si);
+  $('conexionTexto').textContent = si ? 'En línea' : 'Sin conexión, reintentando…';
+}
+
+function conectar() {
+  const fuente = new EventSource('/api/v1/eventos');
+  fuente.addEventListener('estado', (e) => { conectado(true); pintar(JSON.parse(e.data)); });
+  fuente.onerror = async () => {
+    conectado(false);
+    try {
+      const r = await fetch('/api/sesion');
+      const {rol} = await r.json();
+      if (!rol) { fuente.close(); location.href = '/'; }
+    } catch (e) { /* servidor caído: EventSource reintenta solo */ }
+  };
+}
+conectar();
+</script>
+</body>
+</html>

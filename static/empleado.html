@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Avisar pedidos</title>
+<link rel="stylesheet" href="/static/estilo.css">
+<style>
+  body { min-height: 100vh; }
+  .barra {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 12px 16px; border-bottom: 1px solid var(--borde); background: var(--superficie);
+  }
+  .barra h1 { margin: 0; font-size: 1.1rem; }
+  .barra nav { display: flex; gap: 8px; align-items: center; }
+  .enlace { background: none; border: 1px solid var(--borde); color: var(--texto); border-radius: 8px; padding: 6px 10px; font-size: .9rem; text-decoration: none; }
+  .punto { width: 10px; height: 10px; border-radius: 50%; background: var(--peligro); display: inline-block; }
+  .conectado .punto { background: var(--acento); }
+  main {
+    display: grid; gap: 16px; padding: 16px; max-width: 1000px; margin: 0 auto;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  @media (min-width: 760px) { main { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; } }
+  .panel { background: var(--superficie); border: 1px solid var(--borde); border-radius: 14px; padding: 16px; }
+  #pantalla {
+    font-size: 3.4rem; font-weight: 800; text-align: center; font-variant-numeric: tabular-nums;
+    min-height: 1.3em; line-height: 1.3; border-radius: 10px; background: var(--fondo); margin-bottom: 12px;
+  }
+  #pantalla:empty::before { content: "—"; color: var(--suave); font-weight: 400; }
+  .teclado { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .teclado button {
+    font-size: 1.7rem; font-weight: 600; padding: 16px 0; border-radius: 12px;
+    border: 1px solid var(--borde); background: var(--fondo); color: var(--texto);
+    touch-action: manipulation;
+  }
+  .teclado button:active { transform: scale(.97); }
+  .teclado .borrar { font-size: 1.2rem; }
+  #avisar { width: 100%; margin-top: 10px; font-size: 1.4rem; padding: 18px; }
+  #avisar:disabled { opacity: .45; cursor: default; }
+  .mensaje { min-height: 1.4em; margin: 10px 0 0; text-align: center; color: var(--suave); }
+  .mensaje.error { color: var(--peligro); }
+  .cabecera-lista { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .cabecera-lista h2 { margin: 0; font-size: 1.05rem; }
+  #lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  #lista li {
+    display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center;
+    padding: 8px 8px 8px 14px; border: 1px solid var(--borde); border-radius: 10px;
+  }
+  .num { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .hace { display: block; font-size: .8rem; color: var(--suave); font-weight: 400; }
+  .accion { border: 1px solid var(--borde); background: var(--fondo); color: var(--texto); border-radius: 8px; padding: 10px 12px; }
+  .quitar { color: var(--peligro); }
+  .vacia { color: var(--suave); text-align: center; padding: 16px 0; }
+</style>
+</head>
+<body>
+<div class="barra">
+  <h1>Avisar pedidos</h1>
+  <nav>
+    <span id="conexion" title="Conexión"><span class="punto"></span></span>
+    <a class="enlace" href="/visor" target="_blank" rel="noopener">Ver visor</a>
+    <button class="enlace" id="salir" type="button">Salir</button>
+  </nav>
+</div>
+<main>
+  <section class="panel">
+    <div id="pantalla" aria-live="polite"></div>
+    <div class="teclado">
+      <button type="button" data-d="1">1</button><button type="button" data-d="2">2</button><button type="button" data-d="3">3</button>
+      <button type="button" data-d="4">4</button><button type="button" data-d="5">5</button><button type="button" data-d="6">6</button>
+      <button type="button" data-d="7">7</button><button type="button" data-d="8">8</button><button type="button" data-d="9">9</button>
+      <button type="button" class="borrar" id="limpiar">Borrar</button>
+      <button type="button" data-d="0">0</button>
+      <button type="button" class="borrar" id="retroceso" aria-label="Borrar última cifra">⌫</button>
+    </div>
+    <button type="button" class="primario" id="avisar" disabled>Avisar</button>
+    <p class="mensaje" id="mensaje"></p>
+  </section>
+  <section class="panel">
+    <div class="cabecera-lista">
+      <h2>En el visor</h2>
+      <button type="button" class="accion quitar" id="vaciar" hidden>Quitar todos</button>
+    </div>
+    <ul id="lista"></ul>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let numero = '';
+let maxDigitos = 4;
+let estado = null;
+
+function pintarNumero() {
+  $('pantalla').textContent = numero;
+  $('avisar').disabled = numero === '';
+}
+
+function teclear(d) {
+  if (numero.length >= maxDigitos) return;
+  numero = (numero === '0' ? '' : numero) + d;
+  $('mensaje').textContent = '';
+  pintarNumero();
+}
+
+document.querySelectorAll('[data-d]').forEach((b) => b.addEventListener('click', () => teclear(b.dataset.d)));
+$('retroceso').addEventListener('click', () => { numero = numero.slice(0, -1); pintarNumero(); });
+$('limpiar').addEventListener('click', () => { numero = ''; pintarNumero(); });
+$('avisar').addEventListener('click', () => avisar(numero));
+document.addEventListener('keydown', (e) => {
+  if (/^[0-9]$/.test(e.key)) teclear(e.key);
+  else if (e.key === 'Backspace') { numero = numero.slice(0, -1); pintarNumero(); }
+  else if (e.key === 'Escape') { numero = ''; pintarNumero(); }
+  else if (e.key === 'Enter' && numero) { e.preventDefault(); avisar(numero); }
+});
+
+function aviso(texto, error) {
+  $('mensaje').textContent = texto;
+  $('mensaje').classList.toggle('error', !!error);
+}
+
+async function api(metodo, ruta, cuerpo) {
+  const r = await fetch(ruta, {
+    method: metodo,
+    headers: cuerpo ? {'Content-Type': 'application/json'} : {},
+    body: cuerpo ? JSON.stringify(cuerpo) : undefined,
+  });
+  if (r.status === 401) { location.href = '/'; throw new Error('Sesión caducada'); }
+  const datos = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof datos.detail === 'string' ? datos.detail : 'Error ' + r.status);
+  return datos;
+}
+
+async function avisar(n) {
+  try {
+    const p = await api('POST', '/api/v1/pedidos', {numero: n});
+    aviso(p.avisos > 1 ? `Pedido ${p.numero} avisado otra vez` : `Pedido ${p.numero} en el visor`);
+    if (n === numero) { numero = ''; pintarNumero(); }
+  } catch (e) { aviso(e.message, true); }
+}
+
+async function quitar(n) {
+  try { await api('DELETE', '/api/v1/pedidos/' + encodeURIComponent(n)); aviso(`Pedido ${n} quitado`); }
+  catch (e) { aviso(e.message, true); }
+}
+
+$('vaciar').addEventListener('click', async () => {
+  if (!confirm('¿Quitar todos los pedidos del visor?')) return;
+  try { await api('DELETE', '/api/v1/pedidos'); aviso('Visor vacío'); }
+  catch (e) { aviso(e.message, true); }
+});
+
+$('salir').addEventListener('click', async () => { await fetch('/api/logout', {method: 'POST'}); location.href = '/'; });
+
+function hace(segundos) {
+  const m = Math.floor(segundos / 60);
+  return m < 1 ? 'ahora mismo' : `hace ${m} min`;
+}
+
+function boton(texto, clase, accion) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'accion ' + clase; b.textContent = texto;
+  b.addEventListener('click', accion);
+  return b;
+}
+
+function pintarLista() {
+  if (!estado) return;
+  const ahora = Date.now() / 1000;
+  const desfase = ahora - estado.recibido;
+  $('vaciar').hidden = estado.pedidos.length === 0;
+  if (estado.pedidos.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'vacia'; li.style.border = '0';
+    li.textContent = 'No hay pedidos en el visor';
+    $('lista').replaceChildren(li);
+    return;
+  }
+  $('lista').replaceChildren(...estado.pedidos.map((p) => {
+    const li = document.createElement('li');
+    const num = document.createElement('span');
+    num.className = 'num'; num.textContent = p.numero;
+    const sub = document.createElement('span');
+    sub.className = 'hace';
+    sub.textContent = hace(estado.ahora + desfase - p.avisado_en) + (p.avisos > 1 ? ` · ${p.avisos} avisos` : '');
+    num.appendChild(sub);
+    li.append(num, boton('Avisar otra vez', '', () => avisar(p.numero)), boton('Quitar', 'quitar', () => quitar(p.numero)));
+    return li;
+  }));
+}
+setInterval(pintarLista, 30000);
+
+function conectar() {
+  const fuente = new EventSource('/api/v1/eventos');
+  fuente.addEventListener('estado', (e) => {
+    $('conexion').classList.add('conectado');
+    estado = JSON.parse(e.data);
+    estado.recibido = Date.now() / 1000;
+    maxDigitos = estado.max_digitos;
+    pintarLista();
+  });
+  fuente.onerror = async () => {
+    $('conexion').classList.remove('conectado');
+    try {
+      const {rol} = await (await fetch('/api/sesion')).json();
+      if (rol !== 'empleado') { fuente.close(); location.href = '/'; }
+    } catch (e) { /* EventSource reintenta solo */ }
+  };
+}
+pintarNumero();
+conectar();
+</script>
+</body>
+</html>

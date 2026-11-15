@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Avisador de comandas</title>
+<link rel="stylesheet" href="/static/estilo.css">
+</head>
+<body class="centrado">
+<form id="form" class="tarjeta">
+  <h1>Avisador de comandas</h1>
+  <p class="nota">Con la contraseña de <b>empleado</b> marcas pedidos; con la de <b>visor</b> este dispositivo queda como pantalla.</p>
+  <label for="pw">Contraseña</label>
+  <input id="pw" type="password" autocomplete="current-password" required autofocus>
+  <button type="submit" class="primario">Entrar</button>
+  <p id="error" class="error" role="alert"></p>
+</form>
+<script>
+document.getElementById('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const error = document.getElementById('error');
+  error.textContent = '';
+  const r = await fetch('/api/login', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: document.getElementById('pw').value})
+  });
+  if (!r.ok) { error.textContent = 'Contraseña incorrecta'; return; }
+  const {rol} = await r.json();
+  location.href = rol === 'visor' ? '/visor' : '/empleado';
+});
+</script>
+</body>
+</html>
